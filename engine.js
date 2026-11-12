@@ -15,6 +15,10 @@ const ROLES = [
   { id: 'weather', name: 'Weather Officer', job: 'Requests a MANUAL WEATHER OBSERVATION from a human observer to confirm what the weather really is and when it will change.' },
   { id: 'comms', name: 'Communicator', job: 'Talks to the aircraft: requests a PILOT REPORT and transmits GO-AROUND / ABORT when the runway becomes unsafe.' },
 ];
+const LEVEL = { easy: 0.5, normal: 1, hard: 1.7 }; // difficulty: scales hazards and sensor faults
+const NATO = { A: 'Alfa', D: 'Delta', E: 'Echo', I: 'India', L: 'Lima', M: 'Mike', N: 'November', O: 'Oscar', Q: 'Quebec', S: 'Sierra', T: 'Tango', W: 'Whiskey' };
+const NUM = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'niner'];
+const spoken = cs => cs.split('').map(c => NATO[c] || NUM[+c] || c).join(' '); // DTW456 -> Delta Tango Whiskey four five six
 const ACT_ROLE = { respond: 'atc', abort: 'comms', pirep: 'comms', xcheck: 'monitor', smooth: 'analyst', flag: 'analyst', recal: 'maint', work: 'maint', observe: 'weather' };
 
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -83,14 +87,15 @@ function truthHaz(r) { // what is really happening
   return h;
 }
 
-function newWeather(r, t) {
+function newWeather(r, t, calm) { // calm = chance to replace hazardous weather with clear
   const w = r.truth;
-  const wx = pick(['clear', 'clear', 'clear', 'clear', 'clear', 'rain', 'rain', 'rain', 'fog', 'fog', 'snow', 'wind']);
+  let wx = pick(['clear', 'clear', 'clear', 'clear', 'clear', 'clear', 'rain', 'rain', 'rain', 'fog', 'snow', 'wind']);
+  if (calm && wx !== 'clear' && wx !== 'rain' && Math.random() < calm) wx = 'clear';
   w.wx = wx; w.wxUntil = t + (wx === 'clear' || wx === 'rain' ? ri(70, 130) : ri(40, 70)); w.precip = 'none';
   if (wx === 'clear') { w.vis = ri(9000, 10000); w.hum = ri(40, 60); w.xw = ri(3, 12); w.airT = ri(-2, 12); }
   if (wx === 'wind') { w.vis = ri(8000, 10000); w.hum = ri(40, 60); w.xw = ri(33, 45); w.airT = ri(-2, 12); }
   if (wx === 'rain') { w.vis = ri(3000, 6000); w.hum = ri(85, 93); w.xw = ri(5, 18); w.precip = 'rain';
-    if (Math.random() < 0.25) { w.airT = ri(-3, -1); w.surface = 'ice'; w.wx = 'freezing rain'; } else { w.airT = ri(2, 9); } }
+    if (!calm && Math.random() < 0.2) { w.airT = ri(-3, -1); w.surface = 'ice'; w.wx = 'freezing rain'; } else { w.airT = ri(2, 9); } }
   if (wx === 'fog') { w.vis = ri(150, 450); w.hum = ri(97, 100); w.xw = ri(0, 5); w.airT = ri(0, 5); }
   if (wx === 'snow') { w.vis = ri(900, 2000); w.hum = ri(85, 95); w.xw = ri(4, 15); w.airT = ri(-7, -1); w.precip = 'snow'; w.surface = 'snow'; }
   if ((w.surface === 'ice' || w.surface === 'snow') && w.airT >= 4 && wx !== 'snow') w.surface = 'wet';
@@ -124,24 +129,24 @@ function sample(r, id, t) {
 }
 
 function newRoom(n) {
-  const r = { n, truth: { surface: 'dry', obstruction: null, lights: true }, sensors: {}, nextFault: ri(15, 30), job: null, wreckUntil: 0,
+  const r = { n, truth: { surface: 'dry', obstruction: null, lights: true }, sensors: {}, nextFault: ri(60, 80), job: null, wreckUntil: 0,
     xc: null, obs: null, obsNext: 0, pirepNext: 0, crit: null, log: [], score: 0, assigned: null, lastOp: null,
     stats: { success: 0, crash: 0, goRight: 0, goWrong: 0, declWrong: 0, declRight: 0, emerg: 0 },
     dq: { match: 0, total: 0 }, faults: 0, fixed: 0 };
   for (const id of SIDS) r.sensors[id] = { fault: null, raw: [], hist: [], smooth: false, flagged: false, cal: 0 };
-  newWeather(r, 0);
+  newWeather(r, 0, 1); // every runway starts safe: warm-up for the first aircraft
   for (let i = 0; i < 20; i++) for (const id of SIDS) sample(r, id, 0);
   return r;
 }
 
 function create() {
-  const st = { status: 'lobby', t: 0, acc: 0, lastTick: 0, participants: {}, rooms: [], aircraft: [], nextSpawn: C.FIRST, acSeq: 0, kind: 'landing', events: [], evSeq: 0, radio: [] };
+  const st = { level: 'normal', status: 'lobby', t: 0, acc: 0, lastTick: 0, participants: {}, rooms: [], aircraft: [], nextSpawn: C.FIRST, acSeq: 0, kind: 'landing', events: [], evSeq: 0, radio: [] };
   for (let n = 1; n <= C.MAX_ROOMS; n++) st.rooms.push(newRoom(n));
   return st;
 }
 function resetGame(st, wipe) {
-  const p = wipe ? {} : st.participants, f = create();
-  Object.assign(st, f, { participants: p });
+  const p = wipe ? {} : st.participants, lvl = st.level, f = create();
+  Object.assign(st, f, { participants: p, level: lvl || 'normal' });
 }
 
 const members = (st, n) => Object.values(st.participants).filter(p => p.room === n);
@@ -154,7 +159,7 @@ function openCount(st) {
 const fmt = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
 function log(st, r, m, c) { r.log.push({ t: fmt(st.t), m, c: c || '' }); if (r.log.length > 40) r.log.shift(); }
 function radio(st, m, c) { st.radio.push({ t: fmt(st.t), m, c: c || '' }); if (st.radio.length > 30) st.radio.shift(); }
-function event(st, type, room) { st.events.push({ seq: ++st.evSeq, type, room }); if (st.events.length > 40) st.events.shift(); }
+function event(st, type, room, say) { st.events.push({ seq: ++st.evSeq, type, room, say: say || '' }); if (st.events.length > 40) st.events.shift(); }
 const acById = (st, id) => st.aircraft.find(a => a.id === id);
 
 function inject(st, r, id, type) {
@@ -167,16 +172,16 @@ function inject(st, r, id, type) {
 }
 
 function stepRoom(st, r) {
-  const t = st.t, w = r.truth;
-  if (t >= w.wxUntil && !r.assigned) newWeather(r, t); // weather holds steady during an approach
-  if (!w.obstruction && Math.random() < 1 / 300) w.obstruction = pick(['debris (FOD)', 'a stray vehicle', 'wildlife']);
-  if (w.lights && Math.random() < 1 / 600) { w.lights = false; log(st, r, 'Lighting monitor: runway edge lights FAILED. Repair needed.', 'bad'); }
+  const t = st.t, w = r.truth, f = LEVEL[st.level] || 1;
+  if (t >= w.wxUntil && !r.assigned) newWeather(r, t, f < 1 ? 0.5 : 0); // weather holds steady during an approach
+  if (!w.obstruction && t > 120 && Math.random() < f / 420) w.obstruction = pick(['debris (FOD)', 'a stray vehicle', 'wildlife']);
+  if (w.lights && t > 150 && Math.random() < f / 900) { w.lights = false; log(st, r, 'Lighting monitor: runway edge lights FAILED. Repair needed.', 'bad'); }
   if (r.wreckUntil && t >= r.wreckUntil) { r.wreckUntil = 0; log(st, r, 'Wreckage removed. Runway released.', 'ok'); }
   // sensor faults
   if (t >= r.nextFault) {
     const healthy = SIDS.filter(id => !r.sensors[id].fault && !r.sensors[id].cal);
-    if (SIDS.length - healthy.length < 2 && healthy.length) inject(st, r, pick(healthy));
-    r.nextFault = t + ri(35, 60);
+    if (SIDS.length - healthy.length < (f < 1 ? 1 : f > 1 ? 3 : 2) && healthy.length) inject(st, r, pick(healthy));
+    r.nextFault = t + Math.round(ri(45, 75) / f);
   }
   // critical moment during an approach: a real hazard or a false alarm
   if (r.crit && t >= r.crit.at) {
@@ -220,11 +225,12 @@ function assign(st, ac, r) {
   ac.state = 'assigned'; ac.room = r.n; ac.assignT = st.t; ac.resolveAt = st.t + (ac.emergency ? C.EMERG_APPROACH : C.APPROACH);
   r.assigned = ac.id;
   const roll = Math.random();
-  r.crit = roll < 0.37 ? { at: st.t + ri(20, ac.emergency ? 30 : 42), real: roll < 0.12 } : null;
+  const f = LEVEL[st.level] || 1;
+  r.crit = roll < 0.37 * f ? { at: st.t + ri(20, ac.emergency ? 30 : 42), real: roll < 0.12 * f } : null;
   const verb = ac.kind === 'landing' ? 'cleared to land' : 'cleared for take-off';
   radio(st, (ac.emergency ? 'MAYDAY ' : '') + ac.cs + ' ' + verb + ' on Runway ' + r.n + '.', ac.emergency ? 'bad' : 'info');
   log(st, r, ac.cs + ' is ' + verb + ' on YOUR runway. Operation in ' + (ac.resolveAt - st.t) + ' s. Keep watching the sensors.', 'info');
-  event(st, 'approach', r.n);
+  event(st, 'approach', r.n, 'Runway ' + r.n + ' control room. ' + spoken(ac.cs) + ' is ' + verb + ' on your runway. ' + (ac.kind === 'landing' ? 'Touchdown' : 'Departure') + ' in ' + (ac.resolveAt - st.t) + ' seconds. Monitor your sensors.');
 }
 function finish(st, ac, outcome) { ac.state = 'done'; ac.outcome = outcome; }
 
@@ -258,7 +264,7 @@ function abort(st, r) {
     const others = activeRooms(st).length > 1;
     Object.assign(ac, { state: 'calling', emergency: true, t0: st.t, responses: {}, exclude: others ? [r.n] : [], room: null });
     radio(st, 'MAYDAY MAYDAY - ' + ac.cs + ' went around from Runway ' + r.n + ', low fuel, needs a runway NOW.', 'bad');
-    event(st, 'mayday', 0);
+    event(st, 'mayday', 0, 'Mayday, mayday, mayday. ' + spoken(ac.cs) + ' has gone around from runway ' + r.n + ', fuel is low. Requesting immediate emergency landing. Any available runway, respond now.');
   } else if (ac.kind === 'landing') { radio(st, ac.cs + ' went around again and diverted to another airport.', 'warn'); finish(st, ac, 'diverted'); }
   else { radio(st, ac.cs + ' take-off aborted on Runway ' + r.n + ', returning to stand.', 'warn'); finish(st, ac, 'rejected'); }
 }
@@ -271,7 +277,7 @@ function stepAircraft(st) {
     st.kind = st.kind === 'landing' ? 'takeoff' : 'landing';
     st.aircraft.push(ac);
     radio(st, ac.kind === 'landing' ? 'Aircraft ' + cs + ' is going to land within 2 minutes. Which runway is ready?' : 'Aircraft ' + cs + ' requests take-off within 2 minutes. Which runway is ready?', 'info');
-    event(st, 'call', 0);
+    event(st, 'call', 0, 'Tower to all runway control rooms. ' + (ac.kind === 'landing' ? 'Flight ' + spoken(cs) + ' is inbound for landing, two minutes out. Requesting runway clearance.' : 'Flight ' + spoken(cs) + ' is ready for departure and requests take-off clearance within two minutes.') + ' Confirm if your runway is ready.');
     st.nextSpawn = st.t + clamp(Math.round(150 / act.length), 20, 60);
   }
   for (const ac of st.aircraft) {
@@ -286,7 +292,7 @@ function stepAircraft(st) {
       }
       const elig = act.filter(r => ac.responses[r.n] === 'accept' && !r.assigned);
       if (elig.length) assign(st, ac, pick(elig));
-      else if (ac.holds < 1) { ac.holds++; ac.t0 = st.t; ac.responses = {}; radio(st, ac.cs + ': no runway confirmed. Holding, calling again - 60 seconds.', 'warn'); event(st, 'call', 0); }
+      else if (ac.holds < 1) { ac.holds++; ac.t0 = st.t; ac.responses = {}; radio(st, ac.cs + ': no runway confirmed. Holding, calling again - 60 seconds.', 'warn'); event(st, 'call', 0, 'Flight ' + spoken(ac.cs) + ' is holding. No runway has confirmed. Requesting clearance again. Which runway is ready?'); }
       else { radio(st, ac.cs + (ac.kind === 'landing' ? ' diverted to another airport.' : ' departure cancelled.'), 'warn'); finish(st, ac, 'diverted'); }
     } else if (ac.state === 'assigned' && st.t >= ac.resolveAt) resolve(st, ac);
   }
@@ -396,7 +402,7 @@ function roomView(st, p) {
     calls: st.aircraft.filter(a => a.state === 'calling').map(a => ({ id: a.id, cs: a.cs, kind: a.kind, emergency: a.emergency, left: a.t0 + C.READY - st.t, resp: a.responses[r.n] || null, excluded: a.exclude.includes(r.n) })),
     room: { n: r.n, status: roomStatus(r), auto: autoHaz(r), lights: r.truth.lights, sensors: SIDS.map(id => sensorView(r, id)),
       job: r.job ? { label: r.job.label, left: r.job.until - st.t } : null, wreck: r.wreckUntil ? r.wreckUntil - st.t : 0,
-      assigned: assignedView(st, r), log: r.log.slice(-25), score: r.score, stats: r.stats, xc: r.xc ? r.xc.sensor : null,
+      assigned: assignedView(st, r), lastOp: r.lastOp ? Object.assign({ age: st.t - r.lastOp.at }, r.lastOp) : null, log: r.log.slice(-25), score: r.score, stats: r.stats, xc: r.xc ? r.xc.sensor : null,
       obsWait: r.obs ? -1 : Math.max(0, r.obsNext - st.t), work: Object.keys(WORK).map(k => ({ id: k, label: WORK[k].label, d: WORK[k].d })) },
     debrief: st.status === 'ended' ? { dq: dqPct(r), faults: r.faults, fixed: r.fixed } : null,
   };
@@ -408,7 +414,7 @@ function lobbyView(st) {
 function adminView(st) {
   const o = openCount(st);
   return {
-    status: st.status, t: st.t, left: C.SESSION - st.t, evSeq: st.evSeq, events: st.events.slice(-12), radio: st.radio.slice(-9),
+    status: st.status, level: st.level || 'normal', t: st.t, left: C.SESSION - st.t, evSeq: st.evSeq, events: st.events.slice(-12), radio: st.radio.slice(-9),
     calls: st.aircraft.filter(a => a.state === 'calling').map(a => ({ cs: a.cs, kind: a.kind, emergency: a.emergency, left: a.t0 + C.READY - st.t })),
     participants: Object.keys(st.participants).length,
     rooms: st.rooms.slice(0, o).map(r => {
@@ -448,6 +454,7 @@ function handle(st, q, now, adminKey) {
     if (q.key !== adminKey) return { error: 'bad-key' };
     if (q.cmd === 'start' && (st.status === 'lobby' || st.status === 'paused')) { st.status = 'running'; st.lastTick = now; }
     if (q.cmd === 'pause' && st.status === 'running') st.status = 'paused';
+    if (typeof q.cmd === 'string' && q.cmd.slice(0, 6) === 'level:' && Object.prototype.hasOwnProperty.call(LEVEL, q.cmd.slice(6))) st.level = q.cmd.slice(6);
     if (q.cmd === 'reset') resetGame(st, false);
     if (q.cmd === 'wipe') resetGame(st, true);
     tick(st, now);
