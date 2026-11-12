@@ -5,42 +5,43 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Runway Simulation - Admin Overview</title>
 <style>
-:root{--bg:#0b1118;--panel:#131c26;--panel2:#1a2532;--line:#2a3848;--text:#dfe7ef;--mute:#8fa0b3;--ok:#3ecf8e;--warn:#f5b941;--bad:#ff5d5d;--info:#58a6ff}
+:root{--bg:#fdeeee;--panel:#ffffff;--panel2:#fff5f5;--line:#efc3c3;--text:#2a2224;--mute:#6f6165;--ok:#1b8a4b;--warn:#b26a00;--bad:#c62828;--info:#1565c0}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-h1,h2,h3{margin:0;font-weight:600}
-button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:7px 12px;cursor:pointer}
-button:hover{border-color:var(--info)} button.on{background:#1d4d80;border-color:var(--info)} button.go{background:#17603f;border-color:var(--ok)}
-input{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:9px 12px}
+body{margin:0;min-height:100vh;background:linear-gradient(135deg,#ffdcdc 0%,#ffffff 55%,#ffe6e6 100%) fixed;color:var(--text);font:14px/1.45 Verdana,Geneva,Tahoma,sans-serif}
+h1,h2,h3{margin:0;font-weight:700;color:#a31919} h1{font-size:22px}
+button{font:inherit;font-size:13px;color:var(--text);background:#fff;border:1px solid #dba3a3;border-radius:6px;padding:7px 11px;cursor:pointer}
+button:hover{border-color:var(--bad);background:#fff0f0} button.on{background:#c62828;border-color:#c62828;color:#fff} button.go{background:#1b8a4b;border-color:#1b8a4b;color:#fff}
+input{font:inherit;color:var(--text);background:#fff;border:1px solid #dba3a3;border-radius:6px;padding:9px 12px}
 .wrap{padding:12px 16px}
-.top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.top{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
 .top .sp{flex:1}
 .clock{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;padding:0 12px}
-.mute{color:var(--mute)} .small{font-size:12.5px}
+.mute{color:var(--mute)} .small{font-size:12px}
 .cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
-.card.EMPTY{opacity:.45}
+.card{background:var(--panel);border:1px solid var(--line);border-top:4px solid #c62828;border-radius:10px;padding:10px 12px;box-shadow:0 1px 3px rgba(160,30,30,.08)}
+.card.EMPTY{opacity:.5}
 .head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .head .sp{flex:1}
-.pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:13px;font-weight:700;letter-spacing:.04em}
-.CLEAR{background:#14452f;color:var(--ok)} .UNCLEAR{background:#55401a;color:var(--warn)} .BUSY{background:#1d3a5c;color:var(--info)} .EMPTY .pill,.pill.EMPTY{background:#222c38;color:var(--mute)}
-.card h2{font-size:18px}.num{font-size:13px;white-space:nowrap}.num b{font-size:18px} .c-ok{color:var(--ok)} .c-bad{color:var(--bad)} .c-warn{color:var(--warn)} .c-info{color:var(--info)}
-.badge{font-size:11.5px;font-weight:700;padding:1px 6px;border-radius:4px;background:#5a2323;color:#ffb3b3;margin-right:4px}
-.badge.t{background:#3b2a5c;color:#d5c2ff}
-.strip{position:relative;height:120px;margin-top:8px;border-radius:8px;overflow:hidden;background:linear-gradient(#17304d 0%,#274766 62%,#2f4a34 62%,#263c2b 100%)}
-.rwy{position:absolute;left:3%;right:3%;top:74%;height:13%;background:#3b4046;border-top:2px solid #cfd4da;border-bottom:2px solid #cfd4da}
-.rwy:after{content:"";position:absolute;left:2%;right:2%;top:45%;border-top:2px dashed #e8eaed}
-.rwyno{position:absolute;left:3.5%;top:58%;font-weight:700;font-size:13px;color:#fff;opacity:.85}
+.pill{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12.5px;font-weight:700;letter-spacing:.04em}
+.CLEAR{background:#dff3e7;color:var(--ok)} .UNCLEAR{background:#fdeccc;color:var(--warn)} .BUSY{background:#dceafb;color:var(--info)} .pill.EMPTY{background:#eee;color:var(--mute)}
+.card h2{font-size:17px}.num{font-size:12.5px;white-space:nowrap}.num b{font-size:18px} .c-ok{color:var(--ok)} .c-bad{color:var(--bad)} .c-warn{color:var(--warn)} .c-info{color:var(--info)}
+.badge{font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px;background:#c62828;color:#fff;margin-right:4px}
+.badge.t{background:#5e35b1;color:#fff}
+.strip{position:relative;height:120px;margin-top:8px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:linear-gradient(#cfe6fb 0%,#eef6fd 62%,#9cc29f 62%,#86b08a 100%)}
+.rwy{position:absolute;left:3%;right:3%;top:74%;height:13%;background:#4a4f55;border-top:2px solid #fff;border-bottom:2px solid #fff}
+.rwy:after{content:"";position:absolute;left:2%;right:2%;top:45%;border-top:2px dashed #fff}
+.rwyno{position:absolute;left:3.5%;top:57%;font-weight:700;font-size:12px;color:#33413a}
 .plane{position:absolute;width:64px;height:26px;margin:-22px 0 0 -32px;transition:left 1s linear,top 1s linear,opacity .6s;pointer-events:none}
 .veh{position:absolute;top:70%;font-size:22px;transition:left 1s linear}
 .boom{position:absolute;left:60%;top:60%;font-size:40px;margin:-22px 0 0 -20px;animation:boom .5s infinite alternate}
 @keyframes boom{to{transform:scale(1.25)}}
-.cap{position:absolute;right:8px;top:6px;font-size:12.5px;background:rgba(0,0,0,.45);padding:2px 8px;border-radius:5px}
+.cap{position:absolute;right:8px;top:6px;font-size:12.5px;font-weight:700;background:rgba(255,255,255,.9);border:1px solid var(--line);padding:2px 8px;border-radius:5px}
 .cap.l{right:auto;left:8px}
 .bottom{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
-.log div{padding:2px 0;border-bottom:1px solid #1e2a37;font-size:13.5px}
-table{border-collapse:collapse;width:100%}td,th{padding:3px 8px;text-align:left;border-bottom:1px solid #1e2a37}th{color:var(--mute);font-weight:500;font-size:12.5px}
-#login{max-width:420px;margin:15vh auto;text-align:center}
+.log div{padding:2px 0;border-bottom:1px solid #f6dede;font-size:13px}
+table{border-collapse:collapse;width:100%}td,th{padding:3px 8px;text-align:left;border-bottom:1px solid #f6dede}th{color:var(--mute);font-weight:400;font-size:12px}
+#login{max-width:440px;margin:15vh auto;text-align:center}
+#hint{background:#fff8e1;border:1px solid #f0c36d;border-left:6px solid #f5a623;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-weight:700}
 </style>
 </head>
 <body>
@@ -56,6 +57,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:3px 8px;text-align:left;
     <button id="bReset" title="Clears game outcomes, keeps registrations">Reset game</button>
     <button id="bWipe" title="Also removes all registrations">Clear registrations</button>
   </div>
+  <div id="hint" style="display:none"></div>
   <div class="cards" id="cards"></div>
   <div class="bottom"><div class="card"><h3>Tower radio</h3><div class="log" id="radio"></div></div>
     <div class="card"><h3>Leaderboard</h3><div id="board"></div></div></div>
@@ -66,7 +68,7 @@ const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 const mmss=t=>Math.floor(t/60)+':'+String(Math.max(0,Math.floor(t%60))).padStart(2,'0');
 let key=''; try{key=sessionStorage.getItem('rwy_admin')||''}catch(e){}
 let reveal=false, sound=true, lastSeq=null, audio=null, busy=false, built='';
-const PLANE=`<svg viewBox="0 0 64 26"><path d="M3 15 L10 3 L15 3 L16 12 L47 11 Q60 11 62 16 Q60 20 48 20 L12 20 Q4 20 3 15Z" fill="#f2f5f8" stroke="#0b1118" stroke-width="1"/><path d="M26 16 L40 16 L30 24 L24 24Z" fill="#b9c3cf" stroke="#0b1118" stroke-width="1"/><rect x="50" y="13" width="6" height="2.5" rx="1" fill="#2b6cb0"/></svg>`;
+const PLANE=`<svg viewBox="0 0 64 26"><path d="M3 15 L10 3 L15 3 L16 12 L47 11 Q60 11 62 16 Q60 20 48 20 L12 20 Q4 20 3 15Z" fill="#c62828" stroke="#5c0f0f" stroke-width="1"/><path d="M26 16 L40 16 L30 24 L24 24Z" fill="#8e1b1b" stroke="#5c0f0f" stroke-width="1"/><rect x="50" y="13" width="6" height="2.5" rx="1" fill="#ffffff"/></svg>`;
 
 // ---------- sound (synthesised, no files) ----------
 function ctx(){ if(!audio){try{audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}} if(audio&&audio.state==='suspended')audio.resume(); return audio }
@@ -124,7 +126,9 @@ function build(d){ // create cards once per room set; then update in place so an
 function render(d){
   $('status').textContent=d.status.toUpperCase(); $('status').className='pill '+({running:'CLEAR',paused:'UNCLEAR',ended:'UNCLEAR',lobby:'BUSY'})[d.status];
   $('clock').textContent=mmss(d.left);
-  $('bStart').textContent=d.status==='paused'?'Resume':'Start';
+  $('bStart').textContent=d.status==='paused'?'Resume':'Start'; $('bStart').style.display=d.status==='running'||d.status==='ended'?'none':'';
+  $('hint').style.display=d.status==='lobby'||d.status==='paused'?'block':'none';
+  $('hint').textContent=d.status==='lobby'?d.participants+' participants registered. The simulation has NOT started: press the green Start button. The first aircraft calls 30 seconds later.':'Paused. Press Resume to continue.';
   build(d);
   for(const r of d.rooms){
     const n=r.n; $('c'+n).className='card '+(r.status==='EMPTY'?'EMPTY':'');
