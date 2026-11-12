@@ -29,19 +29,19 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // Sensor definitions. tv = true value, haz = fault pushing reading toward "hazard", safe = fault hiding a hazard.
 const S = {
-  cam: { name: 'Runway Camera (CCTV)', unit: '% reflectivity', dec: 0, jit: 2, min: 0, max: 100, thr: 70,
+  cam: { name: 'Runway Camera (CCTV)', unit: '% reflectivity', dec: 0, jit: 3, min: 0, max: 100, thr: 70,
     tv: r => ({ dry: 12, wet: 50, ice: 78, snow: 93 })[r.truth.surface], haz: v => Math.max(v, 50) + 30, safe: v => Math.min(v, 50) },
-  hum: { name: 'Humidity Sensor', unit: '% RH', dec: 0, jit: 1, min: 0, max: 100, thr: null,
+  hum: { name: 'Humidity Sensor', unit: '% RH', dec: 0, jit: 2, min: 0, max: 100, thr: null,
     tv: r => r.truth.hum, haz: v => v + 35, safe: v => v - 35 },
-  st: { name: 'Surface Temperature Sensor', unit: '°C', dec: 1, jit: 0.3, min: -15, max: 20, thr: 0,
+  st: { name: 'Surface Temperature Sensor', unit: '°C', dec: 1, jit: 0.5, min: -15, max: 20, thr: 0,
     tv: r => r.truth.surfT, haz: v => v - 6, safe: v => v + 6 },
-  fp: { name: 'Freezing Point & Solution Sensor', unit: 'mm ice', dec: 1, jit: 0.04, min: 0, max: 3, thr: 0.5,
+  fp: { name: 'Freezing Point & Solution Sensor', unit: 'mm ice', dec: 1, jit: 0.08, min: 0, max: 3, thr: 0.5,
     tv: r => r.truth.surface === 'ice' ? 1.6 : 0, haz: v => Math.max(v, 1.3), safe: () => 0 },
-  tr: { name: 'Transmissometer (RVR)', unit: 'm', dec: 0, jitRel: 0.03, min: 0, max: 2000, thr: 550,
+  tr: { name: 'Transmissometer (RVR)', unit: 'm', dec: 0, jitRel: 0.06, min: 0, max: 2000, thr: 550,
     tv: r => Math.min(r.truth.vis, 2000), haz: v => Math.min(v, 300), safe: v => v + 1500 },
-  fs: { name: 'Forward-Scatter Visibility Sensor', unit: 'm', dec: 0, jitRel: 0.03, min: 0, max: 10000, thr: 550,
+  fs: { name: 'Forward-Scatter Visibility Sensor', unit: 'm', dec: 0, jitRel: 0.06, min: 0, max: 10000, thr: 550,
     tv: r => r.truth.vis, haz: v => Math.min(v, 280), safe: v => v + 4000 },
-  ws: { name: 'Weather Station (AWOS) - crosswind', unit: 'kt', dec: 0, jit: 1.2, min: 0, max: 60, thr: 30,
+  ws: { name: 'Weather Station (AWOS) - crosswind', unit: 'kt', dec: 0, jit: 2.2, min: 0, max: 60, thr: 30,
     tv: r => r.truth.xw, haz: v => v + 26, safe: v => Math.max(0, v - 30) },
   smr: { name: 'Surface Movement Radar / MLAT', unit: 'targets', dec: 0, jit: 0, min: 0, max: 3, thr: 0.5,
     tv: r => (r.truth.obstruction ? 1 : 0) + (r.job ? 1 : 0) + (r.wreckUntil ? 1 : 0), haz: v => v + 1, safe: () => 0 },
@@ -49,8 +49,8 @@ const S = {
 const SIDS = Object.keys(S);
 const FAULT_LABEL = { spike: 'random spikes', biasHaz: 'false alarm (bias / contamination / glare)', biasSafe: 'under-reading (hides a hazard)', stuck: 'stuck / frozen value', dropout: 'data dropout' };
 const WORK = {
-  inspect: { d: 15, label: 'Runway inspection' }, deice: { d: 25, label: 'De-icing' }, plow: { d: 30, label: 'Snow ploughing' },
-  sweep: { d: 20, label: 'Debris sweep / runway clearing' }, lights: { d: 30, label: 'Lighting repair' },
+  inspect: { d: 15, label: 'Runway inspection' }, deice: { d: 15, label: 'De-icing' }, plow: { d: 20, label: 'Snow ploughing' },
+  sweep: { d: 15, label: 'Debris sweep / runway clearing' }, lights: { d: 15, label: 'Lighting repair' },
 };
 
 function alarmOf(id, x) {
@@ -111,12 +111,12 @@ function sample(r, id, t) {
   let raw = v + j();
   if (s.cal) raw = null;
   else if (f) {
-    if (f.type === 'spike') { if (Math.random() < 0.33) raw = d.haz(v); }
+    if (f.type === 'spike') { if (Math.random() < 0.25) raw = d.haz(v); }
     else if (f.type === 'biasHaz') raw = d.haz(v) + j();
     else if (f.type === 'biasSafe') raw = d.safe(v) + j();
     else if (f.type === 'stuck') raw = f.frozen;
     else if (f.type === 'dropout') raw = null;
-  }
+  } else if (Math.random() < 0.025) raw = d.haz(v); // even a healthy sensor glitches now and then: one-sample outlier
   if (raw != null) { raw = clamp(raw, d.min, d.max); if (id === 'smr') raw = Math.round(raw); }
   s.raw.push(raw); if (s.raw.length > 40) s.raw.shift();
   let out = raw;
@@ -125,6 +125,7 @@ function sample(r, id, t) {
     const w = s.raw.slice(-(1 + 2 * lvl)).filter(x => x != null).sort((a, b) => a - b);
     out = w[Math.floor(w.length / 2)];
   }
+  if (lvl && raw != null && alarmOf(id, raw) && !alarmOf(id, out)) s.removed = (s.removed || 0) + 1; // false spike kept out of the assessment
   s.hist.push(out); if (s.hist.length > 40) s.hist.shift();
 }
 
@@ -206,8 +207,9 @@ function stepRoom(st, r) {
     event(st, 'workdone', r.n);
   }
   if (r.xc && t >= r.xc.until) {
-    const id = r.xc.sensor, d = S[id], s = r.sensors[id], ref = d.tv(r), sh = shown(s); r.xc = null;
-    const tol = Math.max((d.max - d.min) * 0.08, d.jitRel ? ref * 0.12 : d.jit * 3);
+    const id = r.xc.sensor, d = S[id], s = r.sensors[id], ref = d.tv(r); r.xc = null;
+    const rec = s.hist.slice(-5).filter(x => x != null).sort((a, b) => a - b), sh = rec.length ? rec[Math.floor(rec.length / 2)] : null;
+    const tol = Math.max((d.max - d.min) * 0.08, d.jitRel ? ref * 0.22 : d.jit * 3.5);
     if (sh == null) log(st, r, 'Cross-check ' + d.name + ': sensor gives no data; reference reads ' + ref.toFixed(d.dec) + ' ' + d.unit + '.', 'info');
     else if (Math.abs(sh - ref) > tol) log(st, r, 'Cross-check ' + d.name + ': DISAGREES. Sensor shows ' + sh.toFixed(d.dec) + ', reference reads ' + ref.toFixed(d.dec) + ' ' + d.unit + '.', 'bad');
     else log(st, r, 'Cross-check ' + d.name + ': agrees with reference (' + ref.toFixed(d.dec) + ' ' + d.unit + ').', 'ok');
@@ -245,8 +247,8 @@ function resolve(st, ac) {
     radio(st, ac.cs + (ac.kind === 'landing' ? ' landed safely on Runway ' : ' departed safely from Runway ') + r.n + '.', 'ok');
     event(st, ac.kind === 'landing' ? 'land' : 'takeoff', r.n); finish(st, ac, 'success');
   } else {
-    r.score += C.PTS.crash; r.stats.crash++; r.wreckUntil = st.t + 40;
-    log(st, r, 'ACCIDENT: ' + ac.cs + ' crashed. Actual runway condition: ' + bad.join(', ') + '. ' + C.PTS.crash + ' points. Runway blocked for 40 s.', 'bad');
+    r.score += C.PTS.crash; r.stats.crash++; r.wreckUntil = st.t + 20;
+    log(st, r, 'ACCIDENT: ' + ac.cs + ' crashed. Actual runway condition: ' + bad.join(', ') + '. ' + C.PTS.crash + ' points. Runway blocked for 20 s.', 'bad');
     radio(st, 'ACCIDENT on Runway ' + r.n + ': ' + ac.cs + ' (' + bad.join(', ') + ').', 'bad');
     event(st, 'crash', r.n); finish(st, ac, 'crash');
   }
@@ -383,7 +385,7 @@ function sensorView(r, id) {
     if (id === 'ws') { f.push(['Air temperature', w.airT + ' °C']); f.push(['Precipitation gauge', w.precip]); }
     if (id === 'smr') f.push(['Runway', x >= 0.5 ? 'TARGET ON RUNWAY' : 'no targets']);
   }
-  return { id, name: d.name, unit: d.unit, dec: d.dec, min: d.min, max: d.max, thr: d.thr, value: x, hist: s.hist, fields: f,
+  return { id, name: d.name, unit: d.unit, dec: d.dec, min: d.min, max: d.max, thr: d.thr, value: x, hist: s.hist, raw: s.raw, removed: s.removed || 0, fields: f,
     alarm: alarmOf(id, x) || (id === 'cam' && camSeesObject(r) ? 'OBSTRUCTION' : null), smooth: Number(s.smooth) || 0, flagged: s.flagged, cal: s.cal ? 1 : 0 };
 }
 function roomStatus(r) { return r.assigned || r.job || r.wreckUntil ? 'BUSY' : autoHaz(r).length ? 'UNCLEAR' : 'CLEAR'; }
