@@ -280,10 +280,10 @@ function render(d){
       <li><b>Obstruction</b> → Debris sweep (${W.sweep} s)</li><li><b>Ice</b> → De-icing (${W.deice} s)</li>
       <li><b>Snow</b> → Snow ploughing (${W.plow} s). Needed when the camera shows "WHITE - snow cover"; a gauge reading "snow" and a surface temperature below 0 °C confirm it</li>
       <li><b>Lighting failure</b> → Lighting repair (${W.lights} s). Never a false alarm</li><li><b>Wreckage</b> → clears by itself in 20 s</li>
-      <li><b>Low visibility, crosswind</b> → wait, weather passes</li><li><b>Faulty sensor</b> → Recalibrate (12 s)</li></ul></div>
+      <li><b>Low visibility, crosswind</b> → wait, weather passes</li><li><b>Faulty sensor</b> → Recalibrate (5 s)</li></ul></div>
     <div class="panel"><h3>Sensor controls</h3><ul class="b">
       <li><b>Cross-check</b>: test against a reference, 8 s</li><li><b>Smoothing</b>: removes spikes and jitter; reading reacts slower</li>
-      <li><b>Flag faulty</b>: hides the sensor from the assessment</li><li><b>Recalibrate</b>: repairs the sensor, 12 s</li></ul></div>
+      <li><b>Flag faulty</b>: hides the sensor from the assessment</li><li><b>Recalibrate</b>: repairs the sensor, 5 s</li></ul></div>
     <div class="panel"><h3>Points</h3><ul class="b">
       <li>Safe landing or take-off: <b>+10</b></li><li>Safe emergency landing: <b>+20</b></li><li>Correct abort: <b>+10</b></li>
       <li>Wrong abort: <b>-5</b></li><li>Declined or ignored while safe: <b>-5</b></li><li>Accident: <b>-20</b></li></ul></div>
