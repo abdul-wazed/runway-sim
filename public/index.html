@@ -71,6 +71,10 @@ input{font:inherit;color:var(--text);background:#fff;border:1px solid #dba3a3;bo
 .boom{position:absolute;left:60%;top:60%;font-size:40px;margin:-22px 0 0 -20px;animation:boom .5s infinite alternate}
 @keyframes boom{to{transform:scale(1.25)}}
 .cap{position:absolute;right:8px;top:6px;font-size:12px;font-weight:700;background:rgba(255,255,255,.9);border:1px solid var(--line);padding:2px 8px;border-radius:5px}
+.rdy{font-size:12.5px;margin-top:6px;padding:4px 8px;border-radius:6px;background:#eef6ee;color:#1b6b3c}
+.rdy.none{background:#f6f1f1;color:var(--mute)}
+.others{margin-top:10px;border-top:1px dashed var(--line);padding-top:7px;font-size:11.5px;color:var(--mute)}
+.others span{display:inline-block;background:#f6f1f1;border:1px solid var(--line);border-radius:5px;padding:2px 7px;margin:3px 4px 0 0;color:var(--text)}
 ul.b{margin:6px 0 0;padding-left:17px;font-size:12px;color:var(--mute)}ul.b li{margin:3px 0}ul.b b{color:var(--text)}
 .op{border-top:5px solid #c62828;padding:12px 14px;min-height:120px}
 .op.live{background:#fff8e1;border-color:#f5a623;box-shadow:0 0 0 2px #f5a623}
@@ -165,9 +169,30 @@ function sensorCard(s,d,big){
       <button data-act="recal" data-sensor="${s.id}" ${P.maint&&!s.cal?'':'disabled'} title="Maintenance Engineer">Recalibrate</button>
     </div></div>`;
 }
-const PLANE=`<svg viewBox="0 0 64 26"><path d="M3 15 L10 3 L15 3 L16 12 L47 11 Q60 11 62 16 Q60 20 48 20 L12 20 Q4 20 3 15Z" fill="#c62828" stroke="#5c0f0f" stroke-width="1"/><path d="M26 16 L40 16 L30 24 L24 24Z" fill="#8e1b1b" stroke="#5c0f0f" stroke-width="1"/><rect x="50" y="13" width="6" height="2.5" rx="1" fill="#ffffff"/></svg>`;
+const planeSvg=(body,wing)=>`<svg viewBox="0 0 64 26"><path d="M3 15 L10 3 L15 3 L16 12 L47 11 Q60 11 62 16 Q60 20 48 20 L12 20 Q4 20 3 15Z" fill="${body}" stroke="#222" stroke-width="1"/><path d="M26 16 L40 16 L30 24 L24 24Z" fill="${wing}" stroke="#222" stroke-width="1"/><rect x="50" y="13" width="6" height="2.5" rx="1" fill="#ffffff"/></svg>`;
+const PLANE_L=planeSvg('#1565c0','#0d3c78'), PLANE_T=planeSvg('#c62828','#8e1b1b'); // blue = arriving, red = departing
+function planeFor(r,kind,prevKey){ // position of the arriving (landing) or departing (takeoff) aircraft, in % of the strip
+  const a=r.assigned, o=r.lastOp;
+  if(a&&a.kind===kind){ const p=Math.min(1,a.p), key=a.cs+'|'+(a.emergency?'e':'n');
+    if(kind==='landing') return {key,x:2+p*56,y:10+p*64,rot:7,op:1};
+    if(p<.55) return {key,x:8,y:74,rot:0,op:1};
+    const q=(p-.55)/.45; return {key,x:8+q*q*46,y:74,rot:0,op:1}; }
+  if(o&&o.kind===kind&&o.age<8&&o.outcome!=='crash'){ const q=o.age/7, key=prevKey&&prevKey.indexOf(o.cs+'|')===0?prevKey:o.cs+'|';
+    if(o.outcome==='success'&&kind==='landing') return {key,x:58+Math.min(1,q)*34,y:74,rot:0,op:q>1?0:1};
+    if(o.outcome==='success') return {key,x:54+q*50,y:74-q*70,rot:-14,op:q>1?0:1};
+    if(kind==='takeoff') return {key,x:8,y:74,rot:0,op:q>.8?0:1};
+    const p=o.p||0, x0=2+p*56, y0=10+p*64; return {key,x:x0+q*(104-x0),y:y0-q*(y0+12),rot:-14,op:q>1?0:1}; }
+  return null;
+}
+function movePlane(el,r,kind){
+  const ps=planeFor(r,kind,el.dataset.k||'');
+  if(!ps){ el.style.opacity=0; el.dataset.k=''; return; }
+  if(el.dataset.k!==ps.key){ // a different aircraft: place it at its start point instantly instead of sliding across
+    el.style.transition='none'; el.style.opacity=0; el.style.left=ps.x+'%'; el.style.top=ps.y+'%'; el.offsetWidth; el.style.transition=''; el.dataset.k=ps.key; }
+  el.style.left=ps.x+'%'; el.style.top=ps.y+'%'; el.style.transform='rotate('+ps.rot+'deg)'; el.style.opacity=ps.op;
+}
 const JOB={
-  atc:['Answer every aircraft call within 60 s','Press <b>Runway READY</b> or <b>Decline</b>','You own the final go / no-go'],
+  atc:['Answer every aircraft call within 60 s','Press <b>ACCEPT flight</b> or <b>Decline</b>: first runway to accept gets it','You own the final go / no-go'],
   monitor:['Watch all sensor trends','<b>Cross-check</b> any suspicious sensor','Tell the team: real hazard or faulty sensor'],
   analyst:['Slide <b>Smoothing</b> up to remove spikes','<b>Flag</b> a sensor only when proven faulty','Un-flag it after it is repaired'],
   maint:['<b>Recalibrate</b> faulty sensors','Send crews to fix real runway problems','Crews block the runway while they work'],
@@ -175,7 +200,7 @@ const JOB={
   comms:['Ask the pilot for a <b>report</b>','Transmit <b>GO-AROUND</b> if the runway turns unsafe','Abort only for a real hazard'] };
 const SKEL=`<div id="dTop"></div><div class="ops"><div class="panel op" id="opCalls"></div><div class="panel op" id="opRwy"></div>
   <div class="panel op" id="opView"><h2>🛫 Runway <span id="rwN"></span> live view</h2><div class="strip"><div class="rwy"></div><div class="rwyno" id="rwNo"></div>
-    <div class="plane" id="pl" style="opacity:0;left:2%;top:10%">${PLANE}</div><div class="veh" id="vh" style="display:none">🚜</div><div class="boom" id="bm" style="display:none">💥</div><div class="cap" id="cp" style="display:none"></div></div></div></div><div id="dGrid"></div>`;
+    <div class="plane" id="plL" style="opacity:0;left:2%;top:10%">${PLANE_L}</div><div class="plane" id="plT" style="opacity:0;left:8%;top:74%">${PLANE_T}</div><div class="veh" id="vh" style="display:none">🚜</div><div class="boom" id="bm" style="display:none">💥</div><div class="cap" id="cp" style="display:none"></div></div></div></div><div id="dGrid"></div>`;
 let voiceOn=true; try{voiceOn=localStorage.getItem('rwy_voice')!=='off'}catch(e){}
 function speak(text){ // tower voice through the browser's built-in speech engine
   if(!voiceOn||!window.speechSynthesis) return;
@@ -183,26 +208,10 @@ function speak(text){ // tower voice through the browser's built-in speech engin
   const u=new SpeechSynthesisUtterance(text), v=speechSynthesis.getVoices().find(x=>/^en/i.test(x.lang));
   if(v) u.voice=v; u.lang='en-GB'; u.rate=1.02; u.pitch=.85; setTimeout(()=>speechSynthesis.speak(u),500);
 }
-function planeState(r){
-  const a=r.assigned, o=r.lastOp;
-  if(a){ const p=Math.min(1,a.p);
-    if(a.kind==='landing') return {x:2+p*56,y:10+p*64,rot:7,op:1};
-    if(p<.55) return {x:8,y:74,rot:0,op:1};
-    const q=(p-.55)/.45; return {x:8+q*q*46,y:74,rot:0,op:1}; }
-  if(o&&o.age<8){ const q=o.age/7;
-    if(o.outcome==='success'&&o.kind==='landing') return {x:58+Math.min(1,q)*34,y:74,rot:0,op:q>1?0:1};
-    if(o.outcome==='success') return {x:54+q*50,y:74-q*70,rot:-14,op:q>1?0:1};
-    if(o.outcome==='goaround'){ const p=o.p||0;
-      if(o.kind==='takeoff') return {x:8,y:74,rot:0,op:q>.8?0:1};
-      const x0=2+p*56,y0=10+p*64; return {x:x0+q*(104-x0),y:y0-q*(y0+12),rot:-14,op:q>1?0:1}; } }
-  return null;
-}
 function drawStrip(d){
-  const r=d.room, ps=planeState(r), pl=$('pl');
+  const r=d.room;
   $('rwN').textContent=r.n; $('rwNo').textContent=String(r.n).padStart(2,'0');
-  if(ps){ if(pl.style.opacity==='0'&&ps.op){ pl.style.transition='none'; pl.style.left=ps.x+'%'; pl.style.top=ps.y+'%'; pl.offsetWidth; pl.style.transition=''; }
-    pl.style.left=ps.x+'%'; pl.style.top=ps.y+'%'; pl.style.transform='rotate('+ps.rot+'deg)'; pl.style.opacity=ps.op; }
-  else pl.style.opacity=0;
+  movePlane($('plL'),r,'landing'); movePlane($('plT'),r,'takeoff');
   const o=r.lastOp, a=r.assigned;
   $('bm').style.display=(r.wreck||(o&&o.outcome==='crash'&&o.age<6))?'block':'none';
   $('vh').style.display=r.job?'block':'none'; if(r.job) $('vh').style.left=(20+((d.t*7)%60))+'%';
@@ -239,9 +248,10 @@ function render(d){
     h+=`<div class="call ${c.emergency?'em':''}"><b>${c.emergency?'MAYDAY · ':''}${esc(c.cs)}</b> · ${c.emergency?'needs an emergency landing NOW':c.kind==='landing'?'inbound for landing, 2 minutes out':'requests take-off within 2 minutes'}
       · answer within <b>${Math.max(0,c.left)} s</b>`;
     if(c.excluded) h+=`<div class="small mute">Went around from your runway: other rooms must take it.</div>`;
-    else h+=`<div class="row"><button class="go ${c.resp==='accept'?'on':''}" data-act="respond" data-ac="${c.id}" data-ans="accept" ${P.atc?'':'disabled'} title="ATC Controller">${c.emergency?'ACCEPT NOW':'Runway READY'}</button>
+    else h+=`<div class="row"><button class="go" data-act="respond" data-ac="${c.id}" data-ans="accept" ${P.atc?'':'disabled'} title="ATC Controller">${c.emergency?'ACCEPT NOW':'ACCEPT flight'}</button>
       <button class="no ${c.resp==='decline'?'on':''}" data-act="respond" data-ac="${c.id}" data-ans="decline" ${P.atc&&!c.emergency?'':'disabled'} title="ATC Controller">Decline</button>
-      ${c.resp?`<span class="${c.resp==='accept'?'c-ok':'c-warn'}">answered: <b>${c.resp.toUpperCase()}</b></span>`:'<span class="mute small">(ATC Controller)</span>'}</div>`;
+      ${c.resp?`<span class="c-warn">you answered: <b>DECLINE</b></span>`:'<span class="mute small">(ATC Controller)</span>'}</div>`;
+    h+=`<div class="rdy none">${c.emergency?'First runway to accept gets this emergency.':'First runway to accept gets the flight.'}${c.declined.length?' Declined by: '+c.declined.map(n=>n===r.n?'<b>Runway '+n+' (you)</b>':'Runway '+n).join(', ')+'.':''}</div>`;
     h+=`</div>`;
   }
   $('opCalls').innerHTML=h; $('opCalls').className='panel op '+(d.calls.some(c=>!c.excluded)?'live':'');
@@ -253,6 +263,7 @@ function render(d){
   else if(!r.job&&!r.wreck) h+=`<div class="empty">No aircraft assigned.</div>`;
   if(r.job) h+=`<div class="call"><span class="c-warn">Crew on runway:</span> ${esc(r.job.label)} · ${r.job.left} s left</div>`;
   if(r.wreck) h+=`<div class="call"><span class="c-bad">Wreckage on runway</span> · cleared in ${r.wreck} s</div>`;
+  if(d.traffic.length) h+=`<div class="others">Other runways: ${d.traffic.map(x=>`<span>${x.emergency?'MAYDAY ':''}<b>${esc(x.cs)}</b> · Runway ${x.room} · ${x.kind==='landing'?'landing':'take-off'} in ${Math.max(0,x.left)} s</span>`).join('')}</div>`;
   $('opRwy').innerHTML=h; $('opRwy').className='panel op '+(a?'live':'');
   // --- top box 3: live runway view (updated in place so the aircraft moves smoothly)
   drawStrip(d);

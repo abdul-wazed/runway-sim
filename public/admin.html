@@ -41,6 +41,7 @@ input{font:inherit;color:var(--text);background:#fff;border:1px solid #dba3a3;bo
 .log div{padding:2px 0;border-bottom:1px solid #f6dede;font-size:13px}
 table{border-collapse:collapse;width:100%}td,th{padding:3px 8px;text-align:left;border-bottom:1px solid #f6dede}th{color:var(--mute);font-weight:400;font-size:12px}
 #login{max-width:440px;margin:15vh auto;text-align:center}
+.chip{display:inline-block;background:#fff8e1;border:1px solid #f0c36d;border-radius:6px;padding:4px 10px;margin:0 6px 4px 0;font-size:13px}.chip.em{background:#c62828;color:#fff;border-color:#7f1010}
 #hint{background:#fff8e1;border:1px solid #f0c36d;border-left:6px solid #f5a623;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-weight:700}
 </style>
 </head>
@@ -59,6 +60,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:3px 8px;text-align:left;
     <button id="bWipe" title="Also removes all registrations">Clear registrations</button>
   </div>
   <div id="hint" style="display:none"></div>
+  <div id="calls" style="margin-bottom:10px;min-height:30px"></div>
   <div class="cards" id="cards"></div>
   <div class="bottom"><div class="card"><h3>Tower radio</h3><div class="log" id="radio"></div></div>
     <div class="card"><h3>Leaderboard</h3><div id="board"></div></div></div>
@@ -69,7 +71,28 @@ const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 const mmss=t=>Math.floor(t/60)+':'+String(Math.max(0,Math.floor(t%60))).padStart(2,'0');
 let key=''; try{key=sessionStorage.getItem('rwy_admin')||''}catch(e){}
 let reveal=false, sound=true, lastSeq=null, audio=null, busy=false, built='';
-const PLANE=`<svg viewBox="0 0 64 26"><path d="M3 15 L10 3 L15 3 L16 12 L47 11 Q60 11 62 16 Q60 20 48 20 L12 20 Q4 20 3 15Z" fill="#c62828" stroke="#5c0f0f" stroke-width="1"/><path d="M26 16 L40 16 L30 24 L24 24Z" fill="#8e1b1b" stroke="#5c0f0f" stroke-width="1"/><rect x="50" y="13" width="6" height="2.5" rx="1" fill="#ffffff"/></svg>`;
+const planeSvg=(body,wing)=>`<svg viewBox="0 0 64 26"><path d="M3 15 L10 3 L15 3 L16 12 L47 11 Q60 11 62 16 Q60 20 48 20 L12 20 Q4 20 3 15Z" fill="${body}" stroke="#222" stroke-width="1"/><path d="M26 16 L40 16 L30 24 L24 24Z" fill="${wing}" stroke="#222" stroke-width="1"/><rect x="50" y="13" width="6" height="2.5" rx="1" fill="#ffffff"/></svg>`;
+const PLANE_L=planeSvg('#1565c0','#0d3c78'), PLANE_T=planeSvg('#c62828','#8e1b1b'); // blue = arriving, red = departing
+function planeFor(r,kind,prevKey){ // position of the arriving (landing) or departing (takeoff) aircraft, in % of the strip
+  const a=r.assigned, o=r.lastOp;
+  if(a&&a.kind===kind){ const p=Math.min(1,a.p), key=a.cs+'|'+(a.emergency?'e':'n');
+    if(kind==='landing') return {key,x:2+p*56,y:10+p*64,rot:7,op:1};
+    if(p<.55) return {key,x:8,y:74,rot:0,op:1};
+    const q=(p-.55)/.45; return {key,x:8+q*q*46,y:74,rot:0,op:1}; }
+  if(o&&o.kind===kind&&o.age<8&&o.outcome!=='crash'){ const q=o.age/7, key=prevKey&&prevKey.indexOf(o.cs+'|')===0?prevKey:o.cs+'|';
+    if(o.outcome==='success'&&kind==='landing') return {key,x:58+Math.min(1,q)*34,y:74,rot:0,op:q>1?0:1};
+    if(o.outcome==='success') return {key,x:54+q*50,y:74-q*70,rot:-14,op:q>1?0:1};
+    if(kind==='takeoff') return {key,x:8,y:74,rot:0,op:q>.8?0:1};
+    const p=o.p||0, x0=2+p*56, y0=10+p*64; return {key,x:x0+q*(104-x0),y:y0-q*(y0+12),rot:-14,op:q>1?0:1}; }
+  return null;
+}
+function movePlane(el,r,kind){
+  const ps=planeFor(r,kind,el.dataset.k||'');
+  if(!ps){ el.style.opacity=0; el.dataset.k=''; return; }
+  if(el.dataset.k!==ps.key){ // a different aircraft: place it at its start point instantly instead of sliding across
+    el.style.transition='none'; el.style.opacity=0; el.style.left=ps.x+'%'; el.style.top=ps.y+'%'; el.offsetWidth; el.style.transition=''; el.dataset.k=ps.key; }
+  el.style.left=ps.x+'%'; el.style.top=ps.y+'%'; el.style.transform='rotate('+ps.rot+'deg)'; el.style.opacity=ps.op;
+}
 
 // ---------- sound (synthesised in the browser, no audio files) ----------
 let master=null, verb=null;
@@ -136,20 +159,6 @@ async function call(cmd){
   const r=await fetch('/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op:'admin',key,cmd})});
   return r.json();
 }
-function planeState(r){ // -> {x,y,rot,op} in % of the strip
-  const a=r.assigned, o=r.lastOp;
-  if(a){ const p=Math.min(1,a.p);
-    if(a.kind==='landing') return {x:2+p*56,y:10+p*64,rot:7,op:1};
-    if(p<.55) return {x:8,y:74,rot:0,op:1};
-    const q=(p-.55)/.45; return {x:8+q*q*46,y:74,rot:0,op:1}; }
-  if(o&&o.age<8){ const q=o.age/7;
-    if(o.outcome==='success'&&o.kind==='landing') return {x:58+Math.min(1,q)*34,y:74,rot:0,op:q>1?0:1};
-    if(o.outcome==='success') return {x:54+q*50,y:74-q*70,rot:-14,op:q>1?0:1};
-    if(o.outcome==='goaround'){ const p=o.p||0;
-      if(o.kind==='takeoff') return {x:8,y:74,rot:0,op:q>.8?0:1};
-      const x0=2+p*56,y0=10+p*64; return {x:x0+q*(104-x0),y:y0-q*(y0+12),rot:-14,op:q>1?0:1}; } }
-  return null;
-}
 function build(d){ // create cards once per room set; then update in place so animations stay smooth
   const sig=d.rooms.map(r=>r.n).join(',');
   if(sig===built) return; built=sig;
@@ -159,7 +168,7 @@ function build(d){ // create cards once per room set; then update in place so an
       <span class="num c-bad">Unsuccessful <b id="cr${r.n}">0</b></span><span class="num c-warn">Go-arounds <b id="ga${r.n}">0</b></span></div>
     <div class="small" id="pb${r.n}" style="min-height:20px;margin-top:4px"></div>
     <div class="strip"><div class="rwy"></div><div class="rwyno">${String(r.n).padStart(2,'0')}</div>
-      <div class="plane" id="pl${r.n}" style="opacity:0;left:2%;top:10%">${PLANE}</div>
+      <div class="plane" id="plL${r.n}" style="opacity:0;left:2%;top:10%">${PLANE_L}</div><div class="plane" id="plT${r.n}" style="opacity:0;left:8%;top:74%">${PLANE_T}</div>
       <div class="veh" id="vh${r.n}" style="display:none">🚜</div><div class="boom" id="bm${r.n}" style="display:none">💥</div>
       <div class="cap" id="cp${r.n}"></div><div class="cap l" id="cl${r.n}" style="display:none"></div></div></div>`).join('');
 }
@@ -169,6 +178,7 @@ function render(d){
   $('bStart').textContent=d.status==='paused'?'Resume':'Start'; $('bStart').style.display=d.status==='running'||d.status==='ended'?'none':'';
   $('hint').style.display=d.status==='lobby'||d.status==='paused'?'block':'none';
   $('hint').textContent=d.status==='lobby'?d.participants+' participants registered. The simulation has NOT started: press the green Start button. The first aircraft calls 30 seconds later.':'Paused. Press Resume to continue.';
+  $('calls').innerHTML=d.calls.length?'<b>Aircraft calling:</b> '+d.calls.map(c=>`<span class="chip ${c.emergency?'em':''}">✈️ ${c.emergency?'MAYDAY ':''}<b>${esc(c.cs)}</b> · ${c.kind==='landing'?'landing':'take-off'} · ${Math.max(0,c.left)} s · ${c.declined.length?'declined by: '+c.declined.map(n=>'Runway '+n).join(', '):'waiting for a runway to accept'}</span>`).join(''):(d.status==='running'?'<span class="mute">No aircraft calling right now.</span>':'');
   build(d);
   for(const r of d.rooms){
     const n=r.n; $('c'+n).className='card '+(r.status==='EMPTY'?'EMPTY':'');
@@ -181,10 +191,7 @@ function render(d){
     if((reveal||d.status==='ended')&&r.status!=='EMPTY') pb+=`<br><span class="mute">Reality (${esc(r.wx)}):</span> `+(r.truth.length?r.truth.map(p=>`<span class="badge t">${esc(p)}</span>`).join(''):'<span class="c-ok">runway safe</span>')
       +(r.faults.length?` <span class="mute">· faulty sensors:</span> `+r.faults.map(esc).join('; '):'')+(r.dq!=null?` <span class="mute">· sensor picture correct ${r.dq}% of the time</span>`:'');
     $('pb'+n).innerHTML=pb;
-    const ps=planeState(r), pl=$('pl'+n);
-    if(ps){ if(pl.style.opacity==='0'&&ps.op){ pl.style.transition='none'; pl.style.left=ps.x+'%'; pl.style.top=ps.y+'%'; pl.offsetWidth; pl.style.transition=''; }
-      pl.style.left=ps.x+'%'; pl.style.top=ps.y+'%'; pl.style.transform='rotate('+ps.rot+'deg)'; pl.style.opacity=ps.op; }
-    else pl.style.opacity=0;
+    movePlane($('plL'+n),r,'landing'); movePlane($('plT'+n),r,'takeoff');
     $('bm'+n).style.display=(r.wreck||(r.lastOp&&r.lastOp.outcome==='crash'&&r.lastOp.age<6))?'block':'none';
     const vh=$('vh'+n); vh.style.display=r.job?'block':'none'; if(r.job) vh.style.left=(20+((d.t*7)%60))+'%';
     const a=r.assigned, o=r.lastOp;
