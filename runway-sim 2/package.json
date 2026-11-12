@@ -1,9 +1,0 @@
-{
-  "name": "runway-digital-twin-sim",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Audience simulation: data quality and noise handling in digital twins and IoT (airport runways)",
-  "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=18" }
-}
