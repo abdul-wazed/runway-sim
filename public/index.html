@@ -141,12 +141,14 @@ const ICON={cam:'📷',hum:'💧',st:'🌡️',fp:'❄️',tr:'🔭',fs:'🌫️
 // sensors each position watches most closely (shown large in the middle)
 const FOCUS={atc:['smr','tr','ws'],monitor:['cam','smr','fp'],analyst:['tr','fs','fp','cam'],maint:['st','fp','cam'],weather:['ws','hum','fs','tr'],comms:['tr','ws','smr']};
 function spark(s,big){
-  const W=240,H=big?84:30,span=(s.max-s.min)||1,y=v=>H-3-((v-s.min)/span)*(H-6),n=s.hist.length;
-  let segs=[],cur=[];
-  s.hist.forEach((v,i)=>{ if(v==null){if(cur.length)segs.push(cur);cur=[]} else cur.push((i/(Math.max(n-1,1))*W).toFixed(1)+','+y(v).toFixed(1)) });
-  if(cur.length)segs.push(cur);
+  const W=240,H=big?84:30,span=(s.max-s.min)||1,y=v=>H-3-((Math.max(s.min,Math.min(s.max,v))-s.min)/span)*(H-6),n=s.hist.length;
+  const line=(arr,col,w)=>{ let segs=[],cur=[];
+    arr.forEach((v,i)=>{ if(v==null){if(cur.length)segs.push(cur);cur=[]} else cur.push((i/(Math.max(n-1,1))*W).toFixed(1)+','+y(v).toFixed(1)) });
+    if(cur.length)segs.push(cur);
+    return segs.map(p=>`<polyline points="${p.join(' ')}" fill="none" stroke="${col}" stroke-width="${w}" vector-effect="non-scaling-stroke"/>`).join(''); };
+  const off=n-s.raw.length, raw=s.hist.map((_,i)=>i-off>=0?s.raw[i-off]:null);
   const thr=s.thr!=null?`<line x1="0" x2="${W}" y1="${y(s.thr)}" y2="${y(s.thr)}" stroke="#c62828" stroke-dasharray="4 4" stroke-width="1" vector-effect="non-scaling-stroke"/>`:'';
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${thr}${segs.map(p=>`<polyline points="${p.join(' ')}" fill="none" stroke="#1565c0" stroke-width="1.8" vector-effect="non-scaling-stroke"/>`).join('')}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${thr}${s.smooth?line(raw,'#b9b3b5',1):''}${line(s.hist,'#1565c0',s.smooth?2.2:1.6)}</svg>`;
 }
 function sensorCard(s,d,big){
   const P=d.perms, val=s.cal?'<span class="c-info" style="font-size:15px">CALIBRATING…</span>':s.value==null?'<span class="c-warn" style="font-size:15px">NO DATA</span>':s.value.toFixed(s.dec)+` <span class="mute small">${esc(s.unit)}</span>`;
@@ -156,6 +158,7 @@ function sensorCard(s,d,big){
     ${s.fields.map(f=>`<div class="kv"><span>${esc(f[0])}</span><b>${esc(f[1])}</b></div>`).join('')}
     ${s.flagged?'<div class="small c-warn">Flagged faulty: excluded from assessment</div>':''}
     <label class="reg" title="Data Quality Analyst: noise smoothing filter"><b>Smoothing</b> off<input type="range" min="0" max="4" step="1" value="${s.smooth}" data-smooth="${s.id}" ${P.analyst?'':'disabled'}>full</label>
+    ${s.smooth?`<div class="small" style="color:#1565c0">Filter ${s.smooth}/4 · blue = filtered, grey = raw · ${s.removed} false spike${s.removed===1?'':'s'} removed</div>`:''}
     <div class="row">
       <button data-act="xcheck" data-sensor="${s.id}" ${P.monitor&&!d.room.xc?'':'disabled'} title="Sensor Monitor">${d.room.xc===s.id?'Checking…':'Cross-check'}</button>
       <button class="${s.flagged?'on':''}" data-act="flag" data-sensor="${s.id}" data-on="${s.flagged?0:1}" ${P.analyst?'':'disabled'} title="Data Quality Analyst">${s.flagged?'Un-flag':'Flag faulty'}</button>
@@ -254,6 +257,7 @@ function render(d){
   // --- top box 3: live runway view (updated in place so the aircraft moves smoothly)
   drawStrip(d);
   // --- main grid
+  const W={}; for(const w of r.work) W[w.id]=w.d;
   h=`<div class="grid"><div class="col">
     <div class="panel"><h3>Your job: ${esc(me.name)}</h3><ul class="b">${(JOB[d.me.role]||[]).map(x=>`<li>${x}</li>`).join('')}</ul>
       <div class="small mute" style="margin-top:6px">Team: ${d.team.map(m=>esc(m.name)+' ('+esc(d.roles.find(x=>x.id===m.role).name)+')').join(', ')}. Empty roles: anyone may use their controls.</div></div>
@@ -262,10 +266,12 @@ function render(d){
     <div class="panel"><h3>👁️ Weather observer <span class="mute small">(Weather Officer)</span></h3><div class="row">
       <button data-act="observe" ${P.weather&&r.obsWait===0?'':'disabled'}>${r.obsWait===-1?'Observing…':r.obsWait>0?'Available in '+r.obsWait+' s':'Request manual observation'}</button></div></div>
     <div class="panel"><h3>If the alarm is real</h3><ul class="b">
-      <li><b>Obstruction</b> → Debris sweep (20 s)</li><li><b>Ice</b> → De-icing (25 s)</li><li><b>Snow</b> → Snow ploughing (30 s)</li>
-      <li><b>Lighting failure</b> → Lighting repair (30 s)</li><li><b>Low visibility, crosswind</b> → wait, weather passes</li><li><b>Faulty sensor</b> → Recalibrate (12 s)</li></ul></div>
+      <li><b>Obstruction</b> → Debris sweep (${W.sweep} s)</li><li><b>Ice</b> → De-icing (${W.deice} s)</li>
+      <li><b>Snow</b> → Snow ploughing (${W.plow} s). Needed when the camera shows "WHITE - snow cover"; a gauge reading "snow" and a surface temperature below 0 °C confirm it</li>
+      <li><b>Lighting failure</b> → Lighting repair (${W.lights} s). Never a false alarm</li><li><b>Wreckage</b> → clears by itself in 20 s</li>
+      <li><b>Low visibility, crosswind</b> → wait, weather passes</li><li><b>Faulty sensor</b> → Recalibrate (12 s)</li></ul></div>
     <div class="panel"><h3>Sensor controls</h3><ul class="b">
-      <li><b>Cross-check</b>: test against a reference, 8 s</li><li><b>Smoothing</b>: removes spikes; slower reading</li>
+      <li><b>Cross-check</b>: test against a reference, 8 s</li><li><b>Smoothing</b>: removes spikes and jitter; reading reacts slower</li>
       <li><b>Flag faulty</b>: hides the sensor from the assessment</li><li><b>Recalibrate</b>: repairs the sensor, 12 s</li></ul></div>
     <div class="panel"><h3>Points</h3><ul class="b">
       <li>Safe landing or take-off: <b>+10</b></li><li>Safe emergency landing: <b>+20</b></li><li>Correct abort: <b>+10</b></li>
