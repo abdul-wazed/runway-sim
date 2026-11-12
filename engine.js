@@ -278,8 +278,8 @@ function stepAircraft(st) {
     const ac = { id: ++st.acSeq, cs, kind: st.kind, emergency: false, t0: st.t, state: 'calling', responses: {}, exclude: [], holds: 0 };
     st.kind = st.kind === 'landing' ? 'takeoff' : 'landing';
     st.aircraft.push(ac);
-    radio(st, ac.kind === 'landing' ? 'Aircraft ' + cs + ' is going to land within 2 minutes. Which runway is ready?' : 'Aircraft ' + cs + ' requests take-off within 2 minutes. Which runway is ready?', 'info');
-    event(st, 'call', 0, 'Tower to all runway control rooms. ' + (ac.kind === 'landing' ? 'Flight ' + spoken(cs) + ' is inbound for landing, two minutes out. Requesting runway clearance.' : 'Flight ' + spoken(cs) + ' is ready for departure and requests take-off clearance within two minutes.') + ' Confirm if your runway is ready.');
+    radio(st, ac.kind === 'landing' ? 'Aircraft ' + cs + ' is going to land within 2 minutes. First runway to accept gets it.' : 'Aircraft ' + cs + ' requests take-off within 2 minutes. First runway to accept gets it.', 'info');
+    event(st, 'call', 0, 'Tower to all runway control rooms. ' + (ac.kind === 'landing' ? 'Flight ' + spoken(cs) + ' is inbound for landing, two minutes out. Requesting runway clearance.' : 'Flight ' + spoken(cs) + ' is ready for departure and requests take-off clearance.') + ' The first runway to accept gets the flight.');
     st.nextSpawn = st.t + clamp(Math.round(150 / act.length), 20, 60);
   }
   for (const ac of st.aircraft) {
@@ -287,14 +287,15 @@ function stepAircraft(st) {
       if (ac.emergency) { radio(st, ac.cs + ' got no runway and diverted to another airport.', 'warn'); finish(st, ac, 'diverted'); continue; }
       for (const r of act) { // judge every free room's answer against the real runway state
         if (r.assigned) continue;
-        if (ac.responses[r.n] === 'accept') continue;
         const bad = truthHaz(r), what = ac.responses[r.n] === 'decline' ? 'Declined ' : 'No answer to ';
         if (!bad.length) { r.score += C.PTS.declWrong; r.stats.declWrong++; log(st, r, what + ac.cs + ', but the runway was actually SAFE. ' + C.PTS.declWrong + ' points.', 'bad'); }
         else { r.stats.declRight++; log(st, r, what + ac.cs + ': correct, runway was unsafe (' + bad.join(', ') + ').', 'ok'); }
       }
-      const elig = act.filter(r => ac.responses[r.n] === 'accept' && !r.assigned);
-      if (elig.length) assign(st, ac, pick(elig));
-      else if (ac.holds < 1) { ac.holds++; ac.t0 = st.t; ac.responses = {}; radio(st, ac.cs + ': no runway confirmed. Holding, calling again - 60 seconds.', 'warn'); event(st, 'call', 0, 'Flight ' + spoken(ac.cs) + ' is holding. No runway has confirmed. Requesting clearance again. Which runway is ready?'); }
+      if (ac.kind === 'landing') { // an arrival nobody accepted cannot wait: it becomes an emergency for every runway
+        Object.assign(ac, { emergency: true, t0: st.t, responses: {}, exclude: [] });
+        radio(st, 'MAYDAY MAYDAY - ' + ac.cs + ' was not accepted by any runway, low fuel, needs a runway NOW.', 'bad');
+        event(st, 'mayday', 0, 'Mayday, mayday, mayday. ' + spoken(ac.cs) + ' has not been accepted by any runway and fuel is low. Requesting immediate emergency landing. First available runway, respond now.');
+      } else if (ac.holds < 1) { ac.holds++; ac.t0 = st.t; ac.responses = {}; radio(st, ac.cs + ': no runway confirmed. Holding, calling again - 60 seconds.', 'warn'); event(st, 'call', 0, 'Flight ' + spoken(ac.cs) + ' is holding. No runway has confirmed. Requesting clearance again. Which runway is ready?'); }
       else { radio(st, ac.cs + (ac.kind === 'landing' ? ' diverted to another airport.' : ' departure cancelled.'), 'warn'); finish(st, ac, 'diverted'); }
     } else if (ac.state === 'assigned' && st.t >= ac.resolveAt) resolve(st, ac);
   }
@@ -324,15 +325,16 @@ function act(st, p, q) {
   switch (q.type) {
     case 'respond': {
       const ac = acById(st, q.ac);
+      if (ac && ac.state === 'assigned' && ac.room !== r.n) return { error: 'Runway ' + ac.room + ' accepted ' + ac.cs + ' first.' };
       if (!ac || ac.state !== 'calling') return { error: 'That aircraft is no longer calling.' };
       if (ac.exclude.includes(r.n)) return { error: 'This aircraft just went around from your runway.' };
       if (q.ans !== 'accept' && q.ans !== 'decline') return { error: 'Bad answer.' };
-      if (ac.emergency && q.ans === 'accept') {
+      if (q.ans === 'accept') { // the flight is locked to the first runway that accepts
         if (r.assigned) return { error: 'Your runway already has an aircraft.' };
-        log(st, r, who + ' ACCEPTED emergency ' + ac.cs + '.', 'info'); assign(st, ac, r); return { ok: 1 };
+        log(st, r, who + ' ACCEPTED ' + (ac.emergency ? 'emergency ' : '') + ac.cs + '.', 'info'); assign(st, ac, r); return { ok: 1 };
       }
-      ac.responses[r.n] = q.ans;
-      log(st, r, who + (q.ans === 'accept' ? ' confirmed runway READY for ' : ' DECLINED ') + ac.cs + '.', 'info');
+      ac.responses[r.n] = 'decline';
+      log(st, r, who + ' DECLINED ' + ac.cs + '.', 'info');
       return { ok: 1 };
     }
     case 'abort':
@@ -395,13 +397,16 @@ function assignedView(st, r) {
 }
 const dqPct = r => r.dq.total ? Math.round(100 * r.dq.match / r.dq.total) : null;
 
+const readyRooms = a => Object.keys(a.responses).filter(n => a.responses[n] === 'decline').map(Number).sort((x, y) => x - y); // rooms that declined this flight
+
 function roomView(st, p) {
   const r = st.rooms[p.room - 1], team = members(st, p.room);
   const perms = {}; for (const ro of ROLES) perms[ro.id] = p.role === ro.id || !team.some(m => m.role === ro.id);
   return {
     me: { name: p.name, room: p.room, role: p.role }, roles: ROLES, team: team.map(m => ({ name: m.name, role: m.role })), perms,
     status: st.status, t: st.t, left: C.SESSION - st.t, evSeq: st.evSeq, events: st.events.slice(-8), radio: st.radio.slice(-10),
-    calls: st.aircraft.filter(a => a.state === 'calling').map(a => ({ id: a.id, cs: a.cs, kind: a.kind, emergency: a.emergency, left: a.t0 + C.READY - st.t, resp: a.responses[r.n] || null, excluded: a.exclude.includes(r.n) })),
+    calls: st.aircraft.filter(a => a.state === 'calling').map(a => ({ id: a.id, cs: a.cs, kind: a.kind, emergency: a.emergency, left: a.t0 + C.READY - st.t, resp: a.responses[r.n] || null, excluded: a.exclude.includes(r.n), declined: readyRooms(a) })),
+    traffic: st.aircraft.filter(a => a.state === 'assigned' && a.room !== r.n).map(a => ({ cs: a.cs, kind: a.kind, emergency: a.emergency, room: a.room, left: a.resolveAt - st.t })),
     room: { n: r.n, status: roomStatus(r), auto: autoHaz(r), lights: r.truth.lights, sensors: SIDS.map(id => sensorView(r, id)),
       job: r.job ? { label: r.job.label, left: r.job.until - st.t } : null, wreck: r.wreckUntil ? r.wreckUntil - st.t : 0,
       assigned: assignedView(st, r), lastOp: r.lastOp ? Object.assign({ age: st.t - r.lastOp.at }, r.lastOp) : null, log: r.log.slice(-25), score: r.score, stats: r.stats, xc: r.xc ? r.xc.sensor : null,
@@ -417,7 +422,7 @@ function adminView(st) {
   const o = openCount(st);
   return {
     status: st.status, level: st.level || 'normal', t: st.t, left: C.SESSION - st.t, evSeq: st.evSeq, events: st.events.slice(-12), radio: st.radio.slice(-9),
-    calls: st.aircraft.filter(a => a.state === 'calling').map(a => ({ cs: a.cs, kind: a.kind, emergency: a.emergency, left: a.t0 + C.READY - st.t })),
+    calls: st.aircraft.filter(a => a.state === 'calling').map(a => ({ cs: a.cs, kind: a.kind, emergency: a.emergency, left: a.t0 + C.READY - st.t, declined: readyRooms(a) })),
     participants: Object.keys(st.participants).length,
     rooms: st.rooms.slice(0, o).map(r => {
       const m = members(st, r.n);
