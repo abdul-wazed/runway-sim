@@ -60,14 +60,24 @@ input{font:inherit;color:var(--text);background:#fff;border:1px solid #dba3a3;bo
 .banner{padding:11px 14px;border-radius:8px;font-weight:700;margin-bottom:12px}
 .banner.crit{background:#c62828;color:#fff;border:2px solid #7f1010;animation:blink 1s infinite}
 .banner.wait{background:#fff;border:1px solid var(--line);border-left:6px solid #c62828}
-.ops{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
-@media(max-width:900px){.ops{grid-template-columns:1fr}}
-.op{border-top:5px solid #c62828;padding:14px 16px;min-height:120px}
+.ops{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}
+@media(max-width:1100px){.ops{grid-template-columns:1fr}}
+.strip{position:relative;height:118px;margin-top:8px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:linear-gradient(#cfe6fb 0%,#eef6fd 62%,#9cc29f 62%,#86b08a 100%)}
+.rwy{position:absolute;left:3%;right:3%;top:74%;height:13%;background:#4a4f55;border-top:2px solid #fff;border-bottom:2px solid #fff}
+.rwy:after{content:"";position:absolute;left:2%;right:2%;top:45%;border-top:2px dashed #fff}
+.rwyno{position:absolute;left:3.5%;top:57%;font-weight:700;font-size:12px;color:#33413a}
+.plane{position:absolute;width:64px;height:26px;margin:-22px 0 0 -32px;transition:left 1.2s linear,top 1.2s linear,opacity .6s;pointer-events:none}
+.veh{position:absolute;top:70%;font-size:22px;transition:left 1.2s linear}
+.boom{position:absolute;left:60%;top:60%;font-size:40px;margin:-22px 0 0 -20px;animation:boom .5s infinite alternate}
+@keyframes boom{to{transform:scale(1.25)}}
+.cap{position:absolute;right:8px;top:6px;font-size:12px;font-weight:700;background:rgba(255,255,255,.9);border:1px solid var(--line);padding:2px 8px;border-radius:5px}
+ul.b{margin:6px 0 0;padding-left:17px;font-size:12px;color:var(--mute)}ul.b li{margin:3px 0}ul.b b{color:var(--text)}
+.op{border-top:5px solid #c62828;padding:12px 14px;min-height:120px}
 .op.live{background:#fff8e1;border-color:#f5a623;box-shadow:0 0 0 2px #f5a623}
-.op h2{font-size:19px}
-.op .call{font-size:16px;padding:12px 14px;background:#fff}
-.op .call b{font-size:19px}
-.op button{font-size:15px;padding:10px 18px;font-weight:700}
+.op h2{font-size:17px}
+.op .call{font-size:14px;padding:10px 12px;background:#fff}
+.op .call b{font-size:17px}
+.op button{font-size:14px;padding:9px 14px;font-weight:700}
 .op .empty{font-size:15px;color:var(--mute);margin-top:10px}
 .reg{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:11.5px;color:var(--mute)}
 .reg b{color:var(--text)}
@@ -152,8 +162,55 @@ function sensorCard(s,d,big){
       <button data-act="recal" data-sensor="${s.id}" ${P.maint&&!s.cal?'':'disabled'} title="Maintenance Engineer">Recalibrate</button>
     </div></div>`;
 }
+const PLANE=`<svg viewBox="0 0 64 26"><path d="M3 15 L10 3 L15 3 L16 12 L47 11 Q60 11 62 16 Q60 20 48 20 L12 20 Q4 20 3 15Z" fill="#c62828" stroke="#5c0f0f" stroke-width="1"/><path d="M26 16 L40 16 L30 24 L24 24Z" fill="#8e1b1b" stroke="#5c0f0f" stroke-width="1"/><rect x="50" y="13" width="6" height="2.5" rx="1" fill="#ffffff"/></svg>`;
+const JOB={
+  atc:['Answer every aircraft call within 60 s','Press <b>Runway READY</b> or <b>Decline</b>','You own the final go / no-go'],
+  monitor:['Watch all sensor trends','<b>Cross-check</b> any suspicious sensor','Tell the team: real hazard or faulty sensor'],
+  analyst:['Slide <b>Smoothing</b> up to remove spikes','<b>Flag</b> a sensor only when proven faulty','Un-flag it after it is repaired'],
+  maint:['<b>Recalibrate</b> faulty sensors','Send crews to fix real runway problems','Crews block the runway while they work'],
+  weather:['Request a <b>manual observation</b>','Confirm fog, wind, rain or snow','Tell the team when weather will change'],
+  comms:['Ask the pilot for a <b>report</b>','Transmit <b>GO-AROUND</b> if the runway turns unsafe','Abort only for a real hazard'] };
+const SKEL=`<div id="dTop"></div><div class="ops"><div class="panel op" id="opCalls"></div><div class="panel op" id="opRwy"></div>
+  <div class="panel op" id="opView"><h2>🛫 Runway <span id="rwN"></span> live view</h2><div class="strip"><div class="rwy"></div><div class="rwyno" id="rwNo"></div>
+    <div class="plane" id="pl" style="opacity:0;left:2%;top:10%">${PLANE}</div><div class="veh" id="vh" style="display:none">🚜</div><div class="boom" id="bm" style="display:none">💥</div><div class="cap" id="cp" style="display:none"></div></div></div></div><div id="dGrid"></div>`;
+let voiceOn=true; try{voiceOn=localStorage.getItem('rwy_voice')!=='off'}catch(e){}
+function speak(text){ // tower voice through the browser's built-in speech engine
+  if(!voiceOn||!window.speechSynthesis) return;
+  if(speechSynthesis.pending) speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text), v=speechSynthesis.getVoices().find(x=>/^en/i.test(x.lang));
+  if(v) u.voice=v; u.lang='en-GB'; u.rate=1.02; u.pitch=.85; setTimeout(()=>speechSynthesis.speak(u),500);
+}
+function planeState(r){
+  const a=r.assigned, o=r.lastOp;
+  if(a){ const p=Math.min(1,a.p);
+    if(a.kind==='landing') return {x:2+p*56,y:10+p*64,rot:7,op:1};
+    if(p<.55) return {x:8,y:74,rot:0,op:1};
+    const q=(p-.55)/.45; return {x:8+q*q*46,y:74,rot:0,op:1}; }
+  if(o&&o.age<8){ const q=o.age/7;
+    if(o.outcome==='success'&&o.kind==='landing') return {x:58+Math.min(1,q)*34,y:74,rot:0,op:q>1?0:1};
+    if(o.outcome==='success') return {x:54+q*50,y:74-q*70,rot:-14,op:q>1?0:1};
+    if(o.outcome==='goaround'){ const p=o.p||0;
+      if(o.kind==='takeoff') return {x:8,y:74,rot:0,op:q>.8?0:1};
+      const x0=2+p*56,y0=10+p*64; return {x:x0+q*(104-x0),y:y0-q*(y0+12),rot:-14,op:q>1?0:1}; } }
+  return null;
+}
+function drawStrip(d){
+  const r=d.room, ps=planeState(r), pl=$('pl');
+  $('rwN').textContent=r.n; $('rwNo').textContent=String(r.n).padStart(2,'0');
+  if(ps){ if(pl.style.opacity==='0'&&ps.op){ pl.style.transition='none'; pl.style.left=ps.x+'%'; pl.style.top=ps.y+'%'; pl.offsetWidth; pl.style.transition=''; }
+    pl.style.left=ps.x+'%'; pl.style.top=ps.y+'%'; pl.style.transform='rotate('+ps.rot+'deg)'; pl.style.opacity=ps.op; }
+  else pl.style.opacity=0;
+  const o=r.lastOp, a=r.assigned;
+  $('bm').style.display=(r.wreck||(o&&o.outcome==='crash'&&o.age<6))?'block':'none';
+  $('vh').style.display=r.job?'block':'none'; if(r.job) $('vh').style.left=(20+((d.t*7)%60))+'%';
+  const cap=a?(a.emergency?'MAYDAY ':'')+a.cs+(a.kind==='landing'?' landing in ':' take-off in ')+Math.max(0,a.left)+' s'
+    :o&&o.age<10?o.cs+': '+({success:o.kind==='landing'?'landed safely':'departed safely',crash:'ACCIDENT',goaround:o.kind==='landing'?'GO-AROUND':'take-off aborted'})[o.outcome]
+    :r.job?r.job.label+' · '+r.job.left+' s':r.wreck?'Wreck removal · '+r.wreck+' s':'';
+  $('cp').textContent=cap; $('cp').style.display=cap?'block':'none';
+}
 function render(d){
   $('lobby').style.display='none'; const el=$('dash'); el.style.display='block';
+  if(!$('dTop')) el.innerHTML=SKEL;
   const r=d.room, P=d.perms, me=d.roles.find(x=>x.id===d.me.role), a=r.assigned;
   const crit=a&&r.auto.filter(h=>h!=='RUNWAY WORK').length;
   const focus=FOCUS[d.me.role]||[], big=r.sensors.filter(s=>focus.includes(s.id)).sort((x,y)=>focus.indexOf(x.id)-focus.indexOf(y.id)), small=r.sensors.filter(s=>!focus.includes(s.id));
@@ -165,42 +222,54 @@ function render(d){
     <div class="stat"><span class="mute small">Safe ops</span><b class="c-ok">${r.stats.success}</b></div>
     <div class="stat"><span class="mute small">Accidents</span><b class="c-bad">${r.stats.crash}</b></div>
     <div class="stat"><span class="mute small">Go-arounds</span><b class="c-warn">${r.stats.goRight+r.stats.goWrong}</b></div>
+    <button data-voice="1" class="small">🔊 Voice: ${voiceOn?'on':'off'}</button>
     <button data-leave="1" class="small">Leave</button></div>`;
   if(d.status==='lobby') h+=`<div class="banner wait">Waiting for the presenter to press Start on the admin screen. No aircraft will appear until then. Study your sensors: the first aircraft calls 30 seconds after the start.</div>`;
   if(d.status==='paused') h+=`<div class="banner wait">Simulation paused.</div>`;
   if(d.status==='ended') h+=`<div class="banner wait">Session complete. Final score ${r.score}. Your sensor picture matched reality ${d.debrief.dq}% of the time. ${d.debrief.faults} sensor faults were injected into your room; your team repaired ${d.debrief.fixed} of them by recalibration.</div>`;
   if(crit) h+=`<div class="banner crit">⚠️ CRITICAL WARNING while ${esc(a.cs)} is ${a.kind==='landing'?'on final approach':'lining up'}: ${esc(r.auto.join(', '))}. Real hazard or sensor noise? Decide now.</div>`;
-  h+=`<div class="ops"><div class="panel op ${d.calls.some(c=>!c.excluded)?'live':''}"><h2>✈️ Aircraft calling</h2>`;
+  $('dTop').innerHTML=h;
+  // --- top box 1: aircraft calling
+  h=`<h2>✈️ Aircraft calling</h2>`;
   if(!d.calls.length) h+=`<div class="empty">No aircraft calling right now.</div>`;
   for(const c of d.calls){
-    h+=`<div class="call ${c.emergency?'em':''}"><b>${c.emergency?'MAYDAY · ':''}${esc(c.cs)}</b> · ${c.emergency?'needs an emergency landing NOW':c.kind==='landing'?'is going to land within 2 minutes':'requests take-off within 2 minutes'}
+    h+=`<div class="call ${c.emergency?'em':''}"><b>${c.emergency?'MAYDAY · ':''}${esc(c.cs)}</b> · ${c.emergency?'needs an emergency landing NOW':c.kind==='landing'?'inbound for landing, 2 minutes out':'requests take-off within 2 minutes'}
       · answer within <b>${Math.max(0,c.left)} s</b>`;
     if(c.excluded) h+=`<div class="small mute">Went around from your runway: other rooms must take it.</div>`;
     else h+=`<div class="row"><button class="go ${c.resp==='accept'?'on':''}" data-act="respond" data-ac="${c.id}" data-ans="accept" ${P.atc?'':'disabled'} title="ATC Controller">${c.emergency?'ACCEPT NOW':'Runway READY'}</button>
       <button class="no ${c.resp==='decline'?'on':''}" data-act="respond" data-ac="${c.id}" data-ans="decline" ${P.atc&&!c.emergency?'':'disabled'} title="ATC Controller">Decline</button>
-      ${c.resp?`<span class="${c.resp==='accept'?'c-ok':'c-warn'}">room answered: <b>${c.resp.toUpperCase()}</b></span>`:'<span class="mute small">(ATC Controller decides)</span>'}</div>`;
+      ${c.resp?`<span class="${c.resp==='accept'?'c-ok':'c-warn'}">answered: <b>${c.resp.toUpperCase()}</b></span>`:'<span class="mute small">(ATC Controller)</span>'}</div>`;
     h+=`</div>`;
   }
-  h+=`</div><div class="panel op ${a?'live':''}"><h2>🛬 On your runway</h2>`;
+  $('opCalls').innerHTML=h; $('opCalls').className='panel op '+(d.calls.some(c=>!c.excluded)?'live':'');
+  // --- top box 2: on your runway
+  h=`<h2>🛬 On your runway</h2>`;
   if(a) h+=`<div class="call"><b>${a.emergency?'MAYDAY · ':''}${esc(a.cs)}</b> · ${a.kind==='landing'?'APPROACHING - touchdown':'lining up - take-off'} in <b>${Math.max(0,a.left)} s</b>
-      <div class="row"><button class="no" data-act="abort" ${P.comms?'':'disabled'} title="Communicator">${a.kind==='landing'?'Transmit GO-AROUND':'Transmit ABORT TAKE-OFF'}</button>
-      <button data-act="pirep" ${P.comms?'':'disabled'} title="Communicator">Ask pilot report</button><span class="mute small">(Communicator)</span></div></div>`;
+      <div class="row"><button class="no" data-act="abort" ${P.comms?'':'disabled'} title="Communicator">${a.kind==='landing'?'Transmit GO-AROUND':'ABORT TAKE-OFF'}</button>
+      <button data-act="pirep" ${P.comms?'':'disabled'} title="Communicator">Ask pilot report</button></div></div>`;
   else if(!r.job&&!r.wreck) h+=`<div class="empty">No aircraft assigned.</div>`;
   if(r.job) h+=`<div class="call"><span class="c-warn">Crew on runway:</span> ${esc(r.job.label)} · ${r.job.left} s left</div>`;
   if(r.wreck) h+=`<div class="call"><span class="c-bad">Wreckage on runway</span> · cleared in ${r.wreck} s</div>`;
-  h+=`</div></div>`;
-  h+=`<div class="grid"><div class="col">
-    <div class="panel"><h3>Your job: ${esc(me.name)}</h3><div class="mute small" style="margin-top:4px">${esc(me.job)}</div>
-      <div class="small mute" style="margin-top:6px">Team: ${d.team.map(m=>esc(m.name)+' ('+esc(d.roles.find(x=>x.id===m.role).name)+')').join(', ')}. Controls of unfilled roles are open to everyone.</div></div>
-    <div class="panel help"><h3>Sensor controls</h3>
-      <div><b>Cross-check</b> (Sensor Monitor): compares the sensor with a trusted reference instrument. Takes 8 s, one at a time. The room log says whether it agrees or disagrees.</div>
-      <div><b>Smoothing</b> (Data Quality Analyst): slide right to filter out random spikes. More smoothing means a calmer but slower reading. It cannot fix a biased or stuck sensor.</div>
-      <div><b>Flag faulty</b> (Data Quality Analyst): removes the sensor from the automatic runway assessment. Flag a healthy sensor and you hide a real hazard.</div>
-      <div><b>Recalibrate</b> (Maintenance Engineer): repairs any fault on the sensor. Takes 12 s with no data from it meanwhile.</div></div>
-    <div class="panel"><h3>🚜 Runway crews <span class="mute small">(Maintenance Engineer)</span></h3><div class="row">
+  $('opRwy').innerHTML=h; $('opRwy').className='panel op '+(a?'live':'');
+  // --- top box 3: live runway view (updated in place so the aircraft moves smoothly)
+  drawStrip(d);
+  // --- main grid
+  h=`<div class="grid"><div class="col">
+    <div class="panel"><h3>Your job: ${esc(me.name)}</h3><ul class="b">${(JOB[d.me.role]||[]).map(x=>`<li>${x}</li>`).join('')}</ul>
+      <div class="small mute" style="margin-top:6px">Team: ${d.team.map(m=>esc(m.name)+' ('+esc(d.roles.find(x=>x.id===m.role).name)+')').join(', ')}. Empty roles: anyone may use their controls.</div></div>
+    <div class="panel"><h3>🚜 Runway crews <span class="mute small">(Maintenance)</span></h3><div class="row">
       ${r.work.map(w=>`<button data-act="work" data-work="${w.id}" ${P.maint&&!r.job?'':'disabled'}>${esc(w.label)} <span class="small">${w.d}s</span></button>`).join('')}</div></div>
     <div class="panel"><h3>👁️ Weather observer <span class="mute small">(Weather Officer)</span></h3><div class="row">
       <button data-act="observe" ${P.weather&&r.obsWait===0?'':'disabled'}>${r.obsWait===-1?'Observing…':r.obsWait>0?'Available in '+r.obsWait+' s':'Request manual observation'}</button></div></div>
+    <div class="panel"><h3>If the alarm is real</h3><ul class="b">
+      <li><b>Obstruction</b> → Debris sweep (20 s)</li><li><b>Ice</b> → De-icing (25 s)</li><li><b>Snow</b> → Snow ploughing (30 s)</li>
+      <li><b>Lighting failure</b> → Lighting repair (30 s)</li><li><b>Low visibility, crosswind</b> → wait, weather passes</li><li><b>Faulty sensor</b> → Recalibrate (12 s)</li></ul></div>
+    <div class="panel"><h3>Sensor controls</h3><ul class="b">
+      <li><b>Cross-check</b>: test against a reference, 8 s</li><li><b>Smoothing</b>: removes spikes; slower reading</li>
+      <li><b>Flag faulty</b>: hides the sensor from the assessment</li><li><b>Recalibrate</b>: repairs the sensor, 12 s</li></ul></div>
+    <div class="panel"><h3>Points</h3><ul class="b">
+      <li>Safe landing or take-off: <b>+10</b></li><li>Safe emergency landing: <b>+20</b></li><li>Correct abort: <b>+10</b></li>
+      <li>Wrong abort: <b>-5</b></li><li>Declined or ignored while safe: <b>-5</b></li><li>Accident: <b>-20</b></li></ul></div>
   </div>
   <div class="col">
     <div class="panel"><div class="kv" style="font-size:13.5px"><b style="text-align:left">Automatic runway assessment (from sensors as filtered by your team)</b>
@@ -216,14 +285,15 @@ function render(d){
   </div>
   <div class="col"><div class="sub">Other sensors</div>${small.map(s=>sensorCard(s,d,false)).join('')}</div></div>`;
   const logs=[...el.querySelectorAll('.log')].map(x=>x.scrollTop);
-  el.innerHTML=h;
+  $('dGrid').innerHTML=h;
   [...el.querySelectorAll('.log')].forEach((x,i)=>x.scrollTop=logs[i]||0);
-  // sounds
+  // sounds and tower voice
   if(lastSeq!==null) for(const e of d.events) if(e.seq>lastSeq){
     if(e.type==='call'){beep(880,.15);beep(1175,.2,'sine',.16)}
     if(e.type==='mayday'){for(let i=0;i<3;i++){beep(700,.18,'square',i*.4);beep(500,.18,'square',i*.4+.2)}}
     if(e.room===r.n&&e.type==='crash') beep(90,.9,'sawtooth');
     if(e.room===r.n&&(e.type==='land'||e.type==='takeoff')){beep(660,.12);beep(990,.25,'sine',.13)}
+    if(e.say&&(!e.room||e.room===r.n)) speak(e.say);
   }
   lastSeq=d.evSeq;
 }
@@ -241,6 +311,7 @@ function handle(d){
 document.addEventListener('pointerdown',async ev=>{
   const b=ev.target.closest('button'); if(!b||b.disabled) return;
   if(b.dataset.reg){const [room,role]=b.dataset.reg.split('|');register(room,role);return}
+  if(b.dataset.voice){ voiceOn=!voiceOn; try{localStorage.setItem('rwy_voice',voiceOn?'on':'off')}catch(e){}; if(voiceOn) speak('Tower voice is on.'); else if(window.speechSynthesis) speechSynthesis.cancel(); b.textContent='🔊 Voice: '+(voiceOn?'on':'off'); return}
   if(b.dataset.leave){ if(confirm('Leave this control room and free your role?')){await api({op:'leave',token});token=null;try{localStorage.removeItem('rwy_token')}catch(e){};lobby()} return}
   if(b.dataset.act){
     const q={op:'act',token,type:b.dataset.act};

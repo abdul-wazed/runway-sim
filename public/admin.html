@@ -52,6 +52,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:3px 8px;text-align:left;
     <h1>Airport Runway Digital Twin <span class="mute" style="font-size:15px">· data quality and noise</span></h1><div class="sp"></div>
     <span id="status" class="pill BUSY"></span><span class="clock" id="clock"></span>
     <button id="bStart" class="go">Start</button><button id="bPause">Pause</button>
+    <select id="level" title="Difficulty: how often hazards and sensor faults appear" style="font:inherit;font-size:13px;padding:7px 8px;border:1px solid #dba3a3;border-radius:6px;background:#fff"><option value="easy">Level: Easy</option><option value="normal">Level: Normal</option><option value="hard">Level: Hard</option></select>
     <button id="bReveal" title="Show the real runway condition and active sensor faults">Reveal truth</button>
     <button id="bSound">Sound: on</button>
     <button id="bReset" title="Clears game outcomes, keeps registrations">Reset game</button>
@@ -125,6 +126,12 @@ const SND={
   mayday(){ for(let i=0;i<4;i++){ osc(i*.5,.25,'square',960,960,[[.01,.09],[.23,.09],[.25,.0001]],2600); osc(i*.5+.25,.25,'square',770,770,[[.01,.09],[.23,.09],[.25,.0001]],2600); } },
 };
 
+function speak(text){ // tower voice through the browser's built-in speech engine
+  if(!sound||!window.speechSynthesis) return;
+  if(speechSynthesis.pending) speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text), v=speechSynthesis.getVoices().find(x=>/^en/i.test(x.lang));
+  if(v) u.voice=v; u.lang='en-GB'; u.rate=1.02; u.pitch=.85; setTimeout(()=>speechSynthesis.speak(u),900);
+}
 async function call(cmd){
   const r=await fetch('/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op:'admin',key,cmd})});
   return r.json();
@@ -158,7 +165,7 @@ function build(d){ // create cards once per room set; then update in place so an
 }
 function render(d){
   $('status').textContent=d.status.toUpperCase(); $('status').className='pill '+({running:'CLEAR',paused:'UNCLEAR',ended:'UNCLEAR',lobby:'BUSY'})[d.status];
-  $('clock').textContent=mmss(d.left);
+  $('clock').textContent=mmss(d.left); if(document.activeElement!==$('level')) $('level').value=d.level;
   $('bStart').textContent=d.status==='paused'?'Resume':'Start'; $('bStart').style.display=d.status==='running'||d.status==='ended'?'none':'';
   $('hint').style.display=d.status==='lobby'||d.status==='paused'?'block':'none';
   $('hint').textContent=d.status==='lobby'?d.participants+' participants registered. The simulation has NOT started: press the green Start button. The first aircraft calls 30 seconds later.':'Paused. Press Resume to continue.';
@@ -189,7 +196,7 @@ function render(d){
   const rows=d.rooms.filter(r=>r.team).sort((a,b)=>b.score-a.score);
   $('board').innerHTML=`<table><tr><th>#</th><th>Room</th><th>Score</th><th>Safe</th><th>Accidents</th><th>Correct aborts</th><th>Wrong aborts</th><th>Wrong declines</th>${d.status==='ended'||reveal?'<th>Data picture correct</th>':''}</tr>`+
     rows.map((r,i)=>`<tr><td>${i+1}</td><td>Runway ${r.n}</td><td><b>${r.score}</b></td><td>${r.stats.success}</td><td>${r.stats.crash}</td><td>${r.stats.goRight}</td><td>${r.stats.goWrong}</td><td>${r.stats.declWrong}</td>${d.status==='ended'||reveal?`<td>${r.dq==null?'-':r.dq+'%'}</td>`:''}</tr>`).join('')+'</table>';
-  if(lastSeq!==null) for(const e of d.events) if(e.seq>lastSeq&&SND[e.type]) SND[e.type]();
+  if(lastSeq!==null) for(const e of d.events) if(e.seq>lastSeq){ if(SND[e.type]) SND[e.type](); if(e.say) speak(e.say); }
   lastSeq=d.evSeq;
 }
 async function tick(cmd){
@@ -204,7 +211,8 @@ $('bStart').onclick=()=>tick('start'); $('bPause').onclick=()=>tick('pause');
 $('bReset').onclick=()=>{if(confirm('Reset the game? Scores and outcomes are cleared; registrations are kept.')){lastSeq=null;tick('reset')}};
 $('bWipe').onclick=()=>{if(confirm('Remove ALL registrations and reset everything?')){lastSeq=null;built='';tick('wipe')}};
 $('bReveal').onclick=()=>{reveal=!reveal;$('bReveal').className=reveal?'on':'';};
-$('bSound').onclick=()=>{sound=!sound;$('bSound').textContent='Sound: '+(sound?'on':'off')};
+$('level').onchange=()=>tick('level:'+$('level').value);
+$('bSound').onclick=()=>{sound=!sound; if(!sound&&window.speechSynthesis) speechSynthesis.cancel();$('bSound').textContent='Sound: '+(sound?'on':'off')};
 tick(); setInterval(()=>{ if(key) tick() },1000);
 </script>
 </body>
