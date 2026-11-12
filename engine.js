@@ -115,8 +115,9 @@ function sample(r, id, t) {
   if (raw != null) { raw = clamp(raw, d.min, d.max); if (id === 'smr') raw = Math.round(raw); }
   s.raw.push(raw); if (s.raw.length > 40) s.raw.shift();
   let out = raw;
-  if (s.smooth && raw != null) {
-    const w = s.raw.slice(-5).filter(x => x != null).sort((a, b) => a - b);
+  const lvl = Number(s.smooth) || 0; // 0 = off ... 4 = full; window of 3, 5, 7, 9 samples
+  if (lvl && raw != null) {
+    const w = s.raw.slice(-(1 + 2 * lvl)).filter(x => x != null).sort((a, b) => a - b);
     out = w[Math.floor(w.length / 2)];
   }
   s.hist.push(out); if (s.hist.length > 40) s.hist.shift();
@@ -342,7 +343,8 @@ function act(st, p, q) {
       r.xc = { sensor: q.sensor, until: t + 8 }; log(st, r, who + ' started a cross-check of ' + S[q.sensor].name + ' (8 s).'); return { ok: 1 };
     case 'smooth':
       if (!s) return { error: 'Pick a sensor.' };
-      s.smooth = !!q.on; log(st, r, who + ' switched smoothing ' + (s.smooth ? 'ON' : 'OFF') + ' for ' + S[q.sensor].name + '.'); return { ok: 1 };
+      s.smooth = clamp(Math.round(Number(q.level)) || 0, 0, 4);
+      log(st, r, who + ' set smoothing to ' + (s.smooth ? s.smooth + '/4' : 'OFF') + ' for ' + S[q.sensor].name + '.'); return { ok: 1 };
     case 'flag':
       if (!s) return { error: 'Pick a sensor.' };
       s.flagged = !!q.on; log(st, r, who + (s.flagged ? ' FLAGGED ' : ' un-flagged ') + S[q.sensor].name + (s.flagged ? ' as faulty (excluded from assessment).' : '.'), s.flagged ? 'warn' : ''); return { ok: 1 };
@@ -376,7 +378,7 @@ function sensorView(r, id) {
     if (id === 'smr') f.push(['Runway', x >= 0.5 ? 'TARGET ON RUNWAY' : 'no targets']);
   }
   return { id, name: d.name, unit: d.unit, dec: d.dec, min: d.min, max: d.max, thr: d.thr, value: x, hist: s.hist, fields: f,
-    alarm: alarmOf(id, x) || (id === 'cam' && camSeesObject(r) ? 'OBSTRUCTION' : null), smooth: s.smooth, flagged: s.flagged, cal: s.cal ? 1 : 0 };
+    alarm: alarmOf(id, x) || (id === 'cam' && camSeesObject(r) ? 'OBSTRUCTION' : null), smooth: Number(s.smooth) || 0, flagged: s.flagged, cal: s.cal ? 1 : 0 };
 }
 function roomStatus(r) { return r.assigned || r.job || r.wreckUntil ? 'BUSY' : autoHaz(r).length ? 'UNCLEAR' : 'CLEAR'; }
 function assignedView(st, r) {
