@@ -49,8 +49,8 @@ const S = {
 const SIDS = Object.keys(S);
 const FAULT_LABEL = { spike: 'random spikes', biasHaz: 'false alarm (bias / contamination / glare)', biasSafe: 'under-reading (hides a hazard)', stuck: 'stuck / frozen value', dropout: 'data dropout' };
 const WORK = {
-  inspect: { d: 15, label: 'Runway inspection' }, deice: { d: 15, label: 'De-icing' }, plow: { d: 20, label: 'Snow ploughing' },
-  sweep: { d: 15, label: 'Debris sweep / runway clearing' }, lights: { d: 15, label: 'Lighting repair' },
+  inspect: { d: 15, label: 'Runway inspection' }, deice: { d: 8, label: 'De-icing' }, plow: { d: 10, label: 'Snow ploughing' },
+  sweep: { d: 10, label: 'Debris sweep / runway clearing' }, lights: { d: 5, label: 'Lighting repair' },
 };
 
 function alarmOf(id, x) {
@@ -361,7 +361,7 @@ function act(st, p, q) {
     case 'recal':
       if (!s) return { error: 'Pick a sensor.' };
       if (s.cal) return { error: 'Already recalibrating.' };
-      s.cal = t + 12; log(st, r, who + ' started recalibrating ' + S[q.sensor].name + ' (12 s, no data meanwhile).'); return { ok: 1 };
+      s.cal = t + 5; log(st, r, who + ' started recalibrating ' + S[q.sensor].name + ' (5 s, no data meanwhile).'); return { ok: 1 };
     case 'work': {
       const wk = Object.prototype.hasOwnProperty.call(WORK, q.work) ? WORK[q.work] : null;
       if (!wk) return { error: 'Unknown job.' };
