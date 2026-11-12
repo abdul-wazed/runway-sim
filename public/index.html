@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runway Control Room</title>
+<style>
+:root{--bg:#0b1118;--panel:#131c26;--panel2:#1a2532;--line:#2a3848;--text:#dfe7ef;--mute:#8fa0b3;--ok:#3ecf8e;--warn:#f5b941;--bad:#ff5d5d;--info:#58a6ff;--acc:#58a6ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+h1,h2,h3{margin:0;font-weight:600}
+button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--acc)}
+button:disabled{opacity:.35;cursor:not-allowed}
+button.on{background:#1d4d80;border-color:var(--acc)}
+button.go{background:#17603f;border-color:var(--ok)}
+button.no{background:#5a2323;border-color:var(--bad)}
+button.big{padding:9px 14px;font-weight:600}
+input{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:9px 12px;width:280px}
+.wrap{max-width:1500px;margin:0 auto;padding:14px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+.mute{color:var(--mute)} .small{font-size:12px}
+.pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:700;letter-spacing:.04em}
+.CLEAR{background:#14452f;color:var(--ok)} .UNCLEAR{background:#55401a;color:var(--warn)} .BUSY{background:#1d3a5c;color:var(--info)}
+.c-ok{color:var(--ok)} .c-bad{color:var(--bad)} .c-warn{color:var(--warn)} .c-info{color:var(--info)}
+/* lobby */
+.rooms{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-top:14px}
+.rolebtn{display:flex;justify-content:space-between;width:100%;margin-top:6px;text-align:left}
+.rolelist{margin-top:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px}
+/* dashboard */
+.top{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.top .sp{flex:1}
+.stat{text-align:center;padding:0 10px}.stat b{display:block;font-size:20px}
+.grid{display:grid;grid-template-columns:330px 1fr 340px;gap:12px;align-items:start}
+@media(max-width:1150px){.grid{grid-template-columns:1fr}}
+.col{display:flex;flex-direction:column;gap:12px}
+.call{border:1px solid var(--line);border-radius:8px;padding:9px;margin-top:8px;background:var(--panel2)}
+.call.em{border-color:var(--bad);background:#3a1a1a;animation:blink 1s infinite}
+@keyframes blink{50%{border-color:#ffb0b0}}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px}
+.sensors{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.sensor{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
+.sensor.alarm{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad) inset}
+.sensor.flag{opacity:.55;border-style:dashed}
+.sensor .val{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}
+.sensor svg{display:block;width:100%;height:40px;margin:4px 0;background:#0e151d;border-radius:4px}
+.kv{display:flex;justify-content:space-between;font-size:12px;color:var(--mute)}.kv b{color:var(--text);font-weight:600}
+.badge{font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;background:#5a2323;color:#ffb3b3}
+.log{max-height:330px;overflow:auto;font-size:12.5px}
+.log div{padding:3px 0;border-bottom:1px solid #1e2a37}
+.banner{padding:10px 14px;border-radius:8px;font-weight:700;margin-bottom:12px}
+.banner.crit{background:#5a1f1f;border:1px solid var(--bad);animation:blink 1s infinite}
+.banner.wait{background:#1d3a5c;border:1px solid var(--info)}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#5a2323;border:1px solid var(--bad);padding:9px 16px;border-radius:8px;display:none;z-index:9}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="lobby" style="display:none">
+    <h1>Airport Runway Digital Twin</h1>
+    <p class="mute">Data quality and noise handling: join a runway control room, pick a role, and keep aircraft safe when the sensors cannot always be trusted.</p>
+    <div class="panel"><label>Your name&nbsp; <input id="name" maxlength="24" placeholder="e.g. Aino"></label>
+      <span class="mute small">&nbsp; Then click a free role in a room below. A new room opens when the open rooms are full.</span></div>
+    <div class="rooms" id="rooms"></div>
+    <h3 style="margin-top:20px">The six roles</h3>
+    <div class="rolelist" id="rolelist"></div>
+  </div>
+  <div id="dash" style="display:none"></div>
+</div>
+<div id="toast"></div>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const api=b=>fetch('/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
+const mmss=t=>Math.floor(t/60)+':'+String(Math.max(0,Math.floor(t%60))).padStart(2,'0');
+let token=null; try{token=localStorage.getItem('rwy_token')}catch(e){}
+let lastSeq=null, audio=null, busy=false;
+
+function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',3000)}
+function beep(f,d,type,when){ if(!audio)return; const o=audio.createOscillator(),g=audio.createGain(),t=audio.currentTime+(when||0);
+  o.type=type||'sine';o.frequency.value=f;g.gain.setValueAtTime(.12,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g).connect(audio.destination);o.start(t);o.stop(t+d)}
+function initAudio(){ if(!audio){try{audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}} }
+document.addEventListener('pointerdown',initAudio);
+
+// ---------- lobby ----------
+async function lobby(){
+  const d=await api({op:'lobby'});
+  $('dash').style.display='none'; $('lobby').style.display='block';
+  $('rooms').innerHTML=d.rooms.map(r=>{
+    const n=Object.keys(r.roles).length;
+    return `<div class="panel"><h3>Runway ${r.n} Control Room <span class="mute small">${n}/6</span></h3>`+
+      d.roles.map(ro=>r.roles[ro.id]?`<button class="rolebtn" disabled><span>${esc(ro.name)}</span><span>${esc(r.roles[ro.id])}</span></button>`
+        :`<button class="rolebtn" data-reg="${r.n}|${ro.id}"><span>${esc(ro.name)}</span><span class="c-ok">free - join</span></button>`).join('')+`</div>`}).join('')
+    +(d.rooms.length<d.maxRooms?`<div class="panel mute">Runway ${d.rooms.length+1} opens when all rooms above are full.</div>`:'');
+  $('rolelist').innerHTML=d.roles.map(ro=>`<div class="panel small"><b>${esc(ro.name)}</b><br><span class="mute">${esc(ro.job)}</span></div>`).join('');
+}
+async function register(room,role){
+  const name=$('name').value.trim(); if(!name){toast('Please type your name first.');$('name').focus();return}
+  const d=await api({op:'register',name,room:+room,role});
+  if(d.error){toast(d.error);lobby();return}
+  token=d.token; try{localStorage.setItem('rwy_token',token)}catch(e){}
+  poll();
+}
+
+// ---------- dashboard ----------
+function spark(s){
+  const W=240,H=40,span=(s.max-s.min)||1,y=v=>H-3-((v-s.min)/span)*(H-6),n=s.hist.length;
+  let segs=[],cur=[];
+  s.hist.forEach((v,i)=>{ if(v==null){if(cur.length)segs.push(cur);cur=[]} else cur.push((i/(Math.max(n-1,1))*W).toFixed(1)+','+y(v).toFixed(1)) });
+  if(cur.length)segs.push(cur);
+  const thr=s.thr!=null?`<line x1="0" x2="${W}" y1="${y(s.thr)}" y2="${y(s.thr)}" stroke="#ff5d5d" stroke-dasharray="4 4" stroke-width="1" opacity=".7"/>`:'';
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${thr}${segs.map(p=>`<polyline points="${p.join(' ')}" fill="none" stroke="#58a6ff" stroke-width="1.6"/>`).join('')}</svg>`;
+}
+function sensorCard(s,d){
+  const P=d.perms, val=s.cal?'<span class="c-info" style="font-size:16px">CALIBRATING…</span>':s.value==null?'<span class="c-warn" style="font-size:16px">NO DATA</span>':s.value.toFixed(s.dec)+` <span class="mute small">${esc(s.unit)}</span>`;
+  return `<div class="sensor ${s.alarm&&!s.flagged?'alarm':''} ${s.flagged?'flag':''}">
+    <div class="kv"><b>${esc(s.name)}</b>${s.alarm?`<span class="badge">${esc(s.alarm)}</span>`:''}</div>
+    <div class="val">${val}</div>${spark(s)}
+    ${s.fields.map(f=>`<div class="kv"><span>${esc(f[0])}</span><b>${esc(f[1])}</b></div>`).join('')}
+    ${s.flagged?'<div class="small c-warn">Flagged faulty: excluded from assessment</div>':''}
+    <div class="row">
+      <button data-act="xcheck" data-sensor="${s.id}" ${P.monitor&&!d.room.xc?'':'disabled'} title="Sensor Monitor">${d.room.xc===s.id?'Checking…':'Cross-check'}</button>
+      <button class="${s.smooth?'on':''}" data-act="smooth" data-sensor="${s.id}" data-on="${s.smooth?0:1}" ${P.analyst?'':'disabled'} title="Data Quality Analyst">Smoothing ${s.smooth?'ON':'off'}</button>
+      <button class="${s.flagged?'on':''}" data-act="flag" data-sensor="${s.id}" data-on="${s.flagged?0:1}" ${P.analyst?'':'disabled'} title="Data Quality Analyst">${s.flagged?'Un-flag':'Flag faulty'}</button>
+      <button data-act="recal" data-sensor="${s.id}" ${P.maint&&!s.cal?'':'disabled'} title="Maintenance Engineer">Recalibrate</button>
+    </div></div>`;
+}
+function render(d){
+  $('lobby').style.display='none'; const el=$('dash'); el.style.display='block';
+  const r=d.room, P=d.perms, me=d.roles.find(x=>x.id===d.me.role), a=r.assigned;
+  const crit=a&&r.auto.filter(h=>h!=='RUNWAY WORK').length;
+  let h=`<div class="top panel">
+    <div><h2>Runway ${r.n} Control Room</h2><span class="mute">${esc(d.me.name)} · <b style="color:var(--text)">${esc(me.name)}</b></span></div>
+    <span class="pill ${r.status}">${r.status}</span><div class="sp"></div>
+    <div class="stat"><span class="mute small">Time left</span><b>${mmss(d.left)}</b></div>
+    <div class="stat"><span class="mute small">Score</span><b>${r.score}</b></div>
+    <div class="stat"><span class="mute small">Safe ops</span><b class="c-ok">${r.stats.success}</b></div>
+    <div class="stat"><span class="mute small">Accidents</span><b class="c-bad">${r.stats.crash}</b></div>
+    <div class="stat"><span class="mute small">Go-arounds</span><b class="c-warn">${r.stats.goRight+r.stats.goWrong}</b></div>
+    <button data-leave="1" class="small">Leave</button></div>`;
+  if(d.status==='lobby') h+=`<div class="banner wait">Waiting for the presenter to start. Study your sensors: the first aircraft calls 30 seconds after the start.</div>`;
+  if(d.status==='paused') h+=`<div class="banner wait">Simulation paused.</div>`;
+  if(d.status==='ended') h+=`<div class="banner wait">Session complete. Final score ${r.score}. Your sensor picture matched reality ${d.debrief.dq}% of the time. ${d.debrief.faults} sensor faults were injected into your room; your team repaired ${d.debrief.fixed} of them by recalibration.</div>`;
+  if(crit) h+=`<div class="banner crit">CRITICAL WARNING while ${esc(a.cs)} is ${a.kind==='landing'?'on final approach':'lining up'}: ${esc(r.auto.join(', '))}. Real hazard or sensor noise? Decide now.</div>`;
+  h+=`<div class="grid"><div class="col">
+    <div class="panel"><h3>Your job: ${esc(me.name)}</h3><div class="mute small" style="margin-top:4px">${esc(me.job)}</div>
+      <div class="small mute" style="margin-top:6px">Team: ${d.team.map(m=>esc(m.name)+' ('+esc(d.roles.find(x=>x.id===m.role).name)+')').join(', ')}. Controls of unfilled roles are open to everyone.</div></div>
+    <div class="panel"><h3>Aircraft calling</h3>`;
+  if(!d.calls.length) h+=`<div class="mute small" style="margin-top:6px">No aircraft calling right now.</div>`;
+  for(const c of d.calls){
+    h+=`<div class="call ${c.emergency?'em':''}"><b>${c.emergency?'MAYDAY · ':''}${esc(c.cs)}</b> · ${c.kind==='landing'?(c.emergency?'emergency landing':'landing'):'take-off'}
+      <span class="mute small">· answer within ${Math.max(0,c.left)} s</span>`;
+    if(c.excluded) h+=`<div class="small mute">Went around from your runway: other rooms must take it.</div>`;
+    else h+=`<div class="row"><button class="go ${c.resp==='accept'?'on':''}" data-act="respond" data-ac="${c.id}" data-ans="accept" ${P.atc?'':'disabled'} title="ATC Controller">${c.emergency?'ACCEPT NOW':'Runway READY'}</button>
+      <button class="no ${c.resp==='decline'?'on':''}" data-act="respond" data-ac="${c.id}" data-ans="decline" ${P.atc&&!c.emergency?'':'disabled'} title="ATC Controller">Decline</button>
+      ${c.resp?`<span class="small ${c.resp==='accept'?'c-ok':'c-warn'}">answered: ${c.resp}</span>`:''}</div>`;
+    h+=`</div>`;
+  }
+  h+=`</div><div class="panel"><h3>On your runway</h3>`;
+  if(a) h+=`<div class="call"><b>${a.emergency?'MAYDAY · ':''}${esc(a.cs)}</b> · ${a.kind==='landing'?'touchdown':'take-off'} in <b>${Math.max(0,a.left)} s</b>
+      <div class="row"><button class="no big" data-act="abort" ${P.comms?'':'disabled'} title="Communicator">${a.kind==='landing'?'Transmit GO-AROUND':'Transmit ABORT TAKE-OFF'}</button>
+      <button data-act="pirep" ${P.comms?'':'disabled'} title="Communicator">Ask pilot report</button></div></div>`;
+  else h+=`<div class="mute small" style="margin-top:6px">No aircraft assigned.</div>`;
+  if(r.job) h+=`<div class="call"><span class="c-warn">Crew on runway:</span> ${esc(r.job.label)} · ${r.job.left} s left</div>`;
+  if(r.wreck) h+=`<div class="call"><span class="c-bad">Wreckage on runway</span> · cleared in ${r.wreck} s</div>`;
+  h+=`</div>
+    <div class="panel"><h3>Runway crews <span class="mute small">(Maintenance Engineer)</span></h3><div class="row">
+      ${r.work.map(w=>`<button data-act="work" data-work="${w.id}" ${P.maint&&!r.job?'':'disabled'}>${esc(w.label)} <span class="mute small">${w.d}s</span></button>`).join('')}</div></div>
+    <div class="panel"><h3>Weather observer <span class="mute small">(Weather Officer)</span></h3><div class="row">
+      <button data-act="observe" ${P.weather&&r.obsWait===0?'':'disabled'}>${r.obsWait===-1?'Observing…':r.obsWait>0?'Available in '+r.obsWait+' s':'Request manual observation'}</button></div></div>
+  </div>
+  <div class="col">
+    <div class="panel"><div class="kv" style="font-size:14px"><b>Automatic runway assessment (from sensors as filtered by your team)</b>
+      <span class="pill ${r.auto.length?'UNCLEAR':'CLEAR'}">${r.auto.length?'UNCLEAR':'CLEAR'}</span></div>
+      <div style="margin-top:4px">${r.auto.length?r.auto.map(x=>`<span class="badge">${esc(x)}</span>`).join(' '):'<span class="mute small">No hazard reported by the sensors.</span>'}
+      <span class="small mute">&nbsp; Runway lighting: <b class="${r.lights?'c-ok':'c-bad'}">${r.lights?'OK':'FAILED'}</b></span></div></div>
+    <div class="sensors">${r.sensors.map(s=>sensorCard(s,d)).join('')}</div>
+  </div>
+  <div class="col">
+    <div class="panel"><h3>Room log</h3><div class="log">${r.log.slice().reverse().map(l=>`<div class="c-${l.c}"><span class="mute">${l.t}</span> ${esc(l.m)}</div>`).join('')||'<div class="mute">Nothing yet.</div>'}</div></div>
+    <div class="panel"><h3>Tower radio</h3><div class="log" style="max-height:200px">${d.radio.slice().reverse().map(l=>`<div class="c-${l.c}"><span class="mute">${l.t}</span> ${esc(l.m)}</div>`).join('')||'<div class="mute">Silence.</div>'}</div></div>
+  </div></div>`;
+  const logs=[...el.querySelectorAll('.log')].map(x=>x.scrollTop);
+  el.innerHTML=h;
+  [...el.querySelectorAll('.log')].forEach((x,i)=>x.scrollTop=logs[i]||0);
+  // sounds
+  if(lastSeq!==null) for(const e of d.events) if(e.seq>lastSeq){
+    if(e.type==='call'){beep(880,.15);beep(1175,.2,'sine',.16)}
+    if(e.type==='mayday'){for(let i=0;i<3;i++){beep(700,.18,'square',i*.4);beep(500,.18,'square',i*.4+.2)}}
+    if(e.room===r.n&&e.type==='crash') beep(90,.9,'sawtooth');
+    if(e.room===r.n&&(e.type==='land'||e.type==='takeoff')){beep(660,.12);beep(990,.25,'sine',.13)}
+  }
+  lastSeq=d.evSeq;
+}
+async function poll(){
+  if(!token) return lobby();
+  if(busy) return; busy=true;
+  try{ const d=await api({op:'state',token}); handle(d) }catch(e){} busy=false;
+}
+function handle(d){
+  if(d.error==='not-registered'){token=null;try{localStorage.removeItem('rwy_token')}catch(e){};lastSeq=null;lobby();return}
+  if(d.error){toast(d.error);return}
+  render(d);
+}
+document.addEventListener('pointerdown',async ev=>{
+  const b=ev.target.closest('button'); if(!b||b.disabled) return;
+  if(b.dataset.reg){const [room,role]=b.dataset.reg.split('|');register(room,role);return}
+  if(b.dataset.leave){ if(confirm('Leave this control room and free your role?')){await api({op:'leave',token});token=null;try{localStorage.removeItem('rwy_token')}catch(e){};lobby()} return}
+  if(b.dataset.act){
+    const q={op:'act',token,type:b.dataset.act};
+    for(const k of ['sensor','work','ans']) if(b.dataset[k]) q[k]=b.dataset[k];
+    if(b.dataset.ac) q.ac=+b.dataset.ac; if(b.dataset.on!==undefined) q.on=b.dataset.on==='1';
+    try{handle(await api(q))}catch(e){toast('Connection problem.')}
+  }
+});
+poll(); setInterval(poll,1200);
+</script>
+</body>
+</html>
